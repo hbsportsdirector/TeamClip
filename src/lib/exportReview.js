@@ -100,7 +100,94 @@ export function buildTimeline(log) {
 const sec = (ms) => (ms / 1000).toFixed(3);
 const AFMT = "aformat=sample_rates=44100:channel_layouts=stereo";
 
-function buildArgs(inputPaths, voicePath, outPath, segs) {
+// ——— Ritningen som ASS-undertext (vektorbanor, renderas av libass) ————
+// Strecken ritades på en yta som är högre än videobilden (contentFit:
+// contain) – log.stage bär ytans mått så koordinaterna kan mappas till
+// videons 9:16-ruta. PlayRes 720x1280 skalar sedan till valfri upplösning.
+const PRX = 720;
+const PRY = 1280;
+
+function assTime(ms) {
+  const cs = Math.max(0, Math.round(ms / 10));
+  const h = Math.floor(cs / 360000);
+  const m = Math.floor((cs % 360000) / 6000);
+  const s = Math.floor((cs % 6000) / 100);
+  const c = cs % 100;
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(c).padStart(2, "0")}`;
+}
+
+export function buildAss(log) {
+  const strokes = log.strokes ?? [];
+  if (strokes.length === 0) return null;
+
+  const events = [...(log.events ?? [])].sort((a, b) => a.t - b.t);
+  // sudd och klippbyten släcker alla streck ritade före den tidpunkten
+  const cuts = events.filter((e) => e.type === "clear" || e.type === "clip").map((e) => e.t);
+  const total = log.durationMs ?? 0;
+
+  const videoAspect = PRX / PRY;
+  const stage =
+    log.stage && log.stage.w > 0 && log.stage.h > 0 ? log.stage : null;
+
+  const mapPoint = (p) => {
+    let x = p.x;
+    let y = p.y;
+    if (stage) {
+      const stageAspect = stage.w / stage.h;
+      if (stageAspect > videoAspect) {
+        const frac = videoAspect / stageAspect; // videons andel av ytans bredd
+        x = (x - (1 - frac) / 2) / frac;
+      } else if (stageAspect < videoAspect) {
+        const frac = stageAspect / videoAspect;
+        y = (y - (1 - frac) / 2) / frac;
+      }
+    }
+    return {
+      x: Math.min(1, Math.max(0, x)) * PRX,
+      y: Math.min(1, Math.max(0, y)) * PRY,
+    };
+  };
+
+  const lines = [];
+  for (const st of strokes) {
+    const pts = st.points ?? [];
+    if (pts.length < 2) continue;
+    const visibleFrom = pts[pts.length - 1].t ?? st.t; // syns när strecket är färdigritat
+    const cut = cuts.find((c) => c > st.t);
+    const visibleTo = Math.min(cut ?? total, total);
+    if (visibleTo - visibleFrom < 80) continue;
+    const path = pts
+      .map((p, i) => {
+        const m = mapPoint(p);
+        return `${i === 0 ? "m" : "l"} ${m.x.toFixed(1)} ${m.y.toFixed(1)}`;
+      })
+      .join(" ");
+    // knep: tom fyllnad (\1a&HFF&) + kantlinje (\bord) = strykt polylinje
+    lines.push(
+      `Dialogue: 0,${assTime(visibleFrom)},${assTime(visibleTo)},TC,,0,0,0,,` +
+        `{\\an7\\pos(0,0)\\bord5\\shad0\\1a&HFF&\\3c&H605AFF&\\p1}${path}{\\p0}`
+    );
+  }
+  if (lines.length === 0) return null;
+
+  return [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    `PlayResX: ${PRX}`,
+    `PlayResY: ${PRY}`,
+    "WrapStyle: 2",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    "Style: TC,Arial,20,&H00605AFF,&H00FFFFFF,&H00605AFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,7,0,0,0,1",
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ...lines,
+  ].join("\n");
+}
+
+function buildArgs(inputPaths, voicePath, outPath, segs, assPath) {
   const f = [];
   segs.forEach((s, i) => {
     const inp = s.clipIdx;
@@ -120,6 +207,9 @@ function buildArgs(inputPaths, voicePath, outPath, segs) {
   });
   const pairs = segs.map((_, i) => `[v${i}][a${i}]`).join("");
   f.push(`${pairs}concat=n=${segs.length}:v=1:a=1[vcat][acat]`);
+  // ritningen bränns in efter concat – tidsaxeln är redan ljudets (pauser inräknade)
+  const vOut = assPath ? "vfin" : "vcat";
+  if (assPath) f.push(`[vcat]ass='${assPath}'[vfin]`);
   // Originalljudet (skottet, sargen) kvar under på lägre volym...
   f.push(`[acat]volume=0.3[abg]`);
   // ...och tränarrösten normaliserad så den ligger tydligt över
@@ -132,7 +222,7 @@ function buildArgs(inputPaths, voicePath, outPath, segs) {
   args.push("-i", voicePath);
   args.push(
     "-filter_complex", f.join(";"),
-    "-map", "[vcat]",
+    "-map", `[${vOut}]`,
     "-map", "[aout]",
     "-c:v", "libx264",
     "-preset", "veryfast",
@@ -156,20 +246,45 @@ async function runExport(ffmpeg, { clipUris, audioUri, log, outName }) {
   }
   const dir = clipsDir();
   const outFile = new File(dir, outName);
-  const args = buildArgs(
-    clipUris.map((u) => plainPath(u)),
-    plainPath(audioUri),
-    plainPath(outFile.uri),
-    segs
-  );
-  const session = await ffmpeg.FFmpegKit.executeWithArguments(args);
-  const rc = await session.getReturnCode();
-  if (!ffmpeg.ReturnCode.isSuccess(rc)) {
+
+  // ritningen som temporär .ass-fil bredvid utfilen
+  let assFile = null;
+  const assContent = buildAss(log);
+  if (assContent) {
+    assFile = new File(dir, outName.replace(/\.mp4$/, ".ass"));
+    assFile.write(assContent);
+  }
+
+  const attempt = async (withAss) => {
+    const args = buildArgs(
+      clipUris.map((u) => plainPath(u)),
+      plainPath(audioUri),
+      plainPath(outFile.uri),
+      segs,
+      withAss && assFile ? plainPath(assFile.uri) : null
+    );
+    const session = await ffmpeg.FFmpegKit.executeWithArguments(args);
+    const rc = await session.getReturnCode();
+    if (!ffmpeg.ReturnCode.isSuccess(rc)) {
+      try {
+        if (outFile.exists) outFile.delete();
+      } catch {}
+      const logs = await session.getLogsAsString();
+      throw new Error(`ffmpeg misslyckades: ${String(logs).slice(-300)}`);
+    }
+  };
+
+  try {
+    await attempt(true);
+  } catch (e) {
+    if (!assFile) throw e;
+    // libass kan sakna fontstöd på vissa enheter – hellre video utan ritning än ingen video
+    console.warn("Export med ritning misslyckades, försöker utan:", e?.message ?? e);
+    await attempt(false);
+  } finally {
     try {
-      if (outFile.exists) outFile.delete();
+      if (assFile?.exists) assFile.delete();
     } catch {}
-    const logs = await session.getLogsAsString();
-    throw new Error(`ffmpeg misslyckades: ${String(logs).slice(-300)}`);
   }
 }
 

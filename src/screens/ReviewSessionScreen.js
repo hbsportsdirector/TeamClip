@@ -135,6 +135,8 @@ function RecordSession({ playlist, title, onSave, onClose, cancelLabel = "‹ Av
   const loggedPlayingRef = useRef(false);
   const clipIdxRef = useRef(0);
   const busyRef = useRef(false);
+  // ritytans mått loggas så att exporten kan mappa strecken till videobilden
+  const stageRef = useRef(null);
 
   const now = () => Date.now() - t0Ref.current;
   const log = (ev) => eventsRef.current.push(ev);
@@ -281,6 +283,7 @@ function RecordSession({ playlist, title, onSave, onClose, cancelLabel = "‹ Av
         durationMs: now(),
         events: eventsRef.current,
         strokes: strokesRef.current,
+        stage: stageRef.current,
       });
       onClose(true);
     } catch (e) {
@@ -328,7 +331,13 @@ function RecordSession({ playlist, title, onSave, onClose, cancelLabel = "‹ Av
         )}
       </View>
 
-      <VideoStage player={video} strokes={strokes} drawEnabled={phase === "recording"} onStroke={onStroke} />
+      <VideoStage
+        player={video}
+        strokes={strokes}
+        drawEnabled={phase === "recording"}
+        onStroke={onStroke}
+        onStageSize={(w, h) => (stageRef.current = { w, h })}
+      />
 
       {error && <Text style={s.error}>{error}</Text>}
 
@@ -542,7 +551,7 @@ function PlaySession({ playlist, review, title, onClose }) {
 }
 
 // ——— Videoyta med ritlager ————————————————————————
-function VideoStage({ player, strokes, drawEnabled, onStroke }) {
+function VideoStage({ player, strokes, drawEnabled, onStroke, onStageSize }) {
   const [size, setSize] = useState({ w: 1, h: 1 });
   const [current, setCurrent] = useState(null);
   const currentRef = useRef(null);
@@ -595,6 +604,7 @@ function VideoStage({ player, strokes, drawEnabled, onStroke }) {
         const { width, height } = e.nativeEvent.layout;
         setSize({ w: width, h: height });
         sizeRef.current = { w: width, h: height };
+        if (onStageSize) onStageSize(width, height);
       }}
     >
       <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} />
