@@ -79,8 +79,11 @@ export default function DriveScreen({ onBack }) {
                 {user.name ? `${user.name} · ` : ""}
                 {user.email}
               </Text>
-              <Pressable onPress={disconnect} style={s.ghostBtn}>
-                <Text style={s.ghostBtnText}>Koppla från</Text>
+              <Pressable
+                onPress={disconnect}
+                style={({ pressed }) => [s.actionBtnGhost, { marginTop: 14 }, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={s.actionBtnGhostText}>Koppla från</Text>
               </Pressable>
             </View>
 
@@ -98,18 +101,21 @@ export default function DriveScreen({ onBack }) {
                       : `${pending} ${pending === 1 ? "fil" : "filer"} väntar`}
                     {stats.error > 0 ? ` · ${stats.error} misslyckade` : ""}
                   </Text>
-                  <View style={{ flexDirection: "row", gap: 8, marginTop: 10, alignItems: "center" }}>
+                  <View style={{ gap: 10, marginTop: 14 }}>
                     {stats.uploading === 0 && pending > 0 && (
-                      <Pressable onPress={() => uploadQueue.kick()} style={s.primaryBtnSmall}>
-                        <Text style={s.primaryBtnSmallText}>Ladda upp nu</Text>
+                      <Pressable
+                        onPress={() => uploadQueue.kick()}
+                        style={({ pressed }) => [s.actionBtn, pressed && s.actionBtnPressed]}
+                      >
+                        <Text style={s.actionBtnText}>Ladda upp nu</Text>
                       </Pressable>
                     )}
                     {stats.error > 0 && (
                       <Pressable
                         onPress={() => uploadQueue.retryErrors()}
-                        style={[s.ghostBtn, { marginTop: 0 }]}
+                        style={({ pressed }) => [s.actionBtnGhost, pressed && { opacity: 0.7 }]}
                       >
-                        <Text style={s.ghostBtnText}>Försök igen med misslyckade</Text>
+                        <Text style={s.actionBtnGhostText}>Försök igen med misslyckade</Text>
                       </Pressable>
                     )}
                   </View>
@@ -162,23 +168,22 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   primaryBtnText: { color: "#fff", fontFamily: F.cond800, fontSize: 19, letterSpacing: 1.5 },
-  primaryBtnSmall: {
+  actionBtn: {
     backgroundColor: T.accent,
-    borderRadius: 99,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: "center",
   },
-  primaryBtnSmallText: { color: "#fff", fontFamily: F.body600, fontSize: 13 },
-  ghostBtn: {
+  actionBtnPressed: { backgroundColor: T.accentDeep },
+  actionBtnText: { color: "#fff", fontFamily: F.cond700, fontSize: 17, letterSpacing: 0.8 },
+  actionBtnGhost: {
     borderWidth: 1.5,
-    borderColor: T.dim,
-    borderRadius: 99,
-    paddingVertical: 7,
-    paddingHorizontal: 16,
-    alignSelf: "flex-start",
-    marginTop: 10,
+    borderColor: T.courtLite,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
   },
-  ghostBtnText: { color: T.mut, fontFamily: F.body600, fontSize: 13 },
+  actionBtnGhostText: { color: T.mut, fontFamily: F.body600, fontSize: 14.5 },
   note: { color: T.dim, fontFamily: F.body, fontSize: 13, lineHeight: 19, marginTop: 6 },
   error: { color: T.rec, fontFamily: F.body600, fontSize: 13, marginTop: 14, lineHeight: 19 },
 });
