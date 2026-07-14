@@ -1,9 +1,9 @@
-import { View, Text, Pressable, ScrollView, StyleSheet } from "react-native";
+import { useState } from "react";
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet } from "react-native";
 import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
-import { SectionLabel, Chip } from "../components/ui";
-
-export const MOMENTS = ["Kantskott", "Straffkast", "Genombrott", "Nio meter", "Målvakt"];
+import { SectionLabel, Chip, u } from "../components/ui";
+import { SPORTS, momentsOf } from "../data/sports";
 
 export default function PrepTab({ group, session, setSession, onDone }) {
   const { registry } = useApp();
@@ -51,16 +51,7 @@ export default function PrepTab({ group, session, setSession, onDone }) {
       </View>
 
       <SectionLabel style={{ marginTop: 26 }}>Dagens moment</SectionLabel>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        {MOMENTS.map((m) => (
-          <Chip
-            key={m}
-            label={m}
-            active={session.moment === m}
-            onPress={() => setSession((sess) => ({ ...sess, moment: m }))}
-          />
-        ))}
-      </View>
+      <MomentPicker group={group} session={session} setSession={setSession} />
 
       <Pressable onPress={onDone} style={[s.startBtn, n === 0 && { opacity: 0.4 }]} disabled={n === 0}>
         <Text style={s.startBtnText}>STARTA PASSET · {n} SPELARE</Text>
@@ -72,6 +63,115 @@ export default function PrepTab({ group, session, setSession, onDone }) {
     </ScrollView>
   );
 }
+
+function MomentPicker({ group, session, setSession }) {
+  const { setGroupMoments } = useApp();
+  const [editing, setEditing] = useState(false);
+  const [newMoment, setNewMoment] = useState("");
+  const moments = momentsOf(group);
+
+  const pick = (m) => setSession((sess) => ({ ...sess, moment: m }));
+
+  const save = (list) => {
+    setGroupMoments(group.id, list);
+    if (!list.includes(session.moment)) pick(list[0]);
+  };
+
+  const add = () => {
+    const m = newMoment.trim();
+    if (!m || moments.includes(m)) return;
+    save([...moments, m]);
+    setNewMoment("");
+  };
+
+  const remove = (m) => {
+    if (moments.length <= 1) return;
+    save(moments.filter((x) => x !== m));
+  };
+
+  const applyPreset = (sport) => save([...sport.moments]);
+
+  return (
+    <View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {moments.map((m) =>
+          editing ? (
+            <Pressable key={m} onPress={() => remove(m)} style={ms.editChip}>
+              <Text style={ms.editChipText}>{m}</Text>
+              <Text style={[ms.editChipX, moments.length <= 1 && { color: T.dim }]}>×</Text>
+            </Pressable>
+          ) : (
+            <Chip key={m} label={m} active={session.moment === m} onPress={() => pick(m)} />
+          )
+        )}
+        <Chip
+          label={editing ? "✓ Klar" : "✎ Redigera"}
+          dashed={!editing}
+          onPress={() => {
+            setEditing(!editing);
+            setNewMoment("");
+          }}
+        />
+      </View>
+
+      {editing && (
+        <View style={{ marginTop: 12 }}>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TextInput
+              value={newMoment}
+              onChangeText={setNewMoment}
+              onSubmitEditing={add}
+              placeholder="Eget moment, t.ex. Kontring"
+              placeholderTextColor={T.dim}
+              style={u.input}
+            />
+            <Pressable onPress={add} style={u.addBtn}>
+              <Text style={u.addBtnText}>+</Text>
+            </Pressable>
+          </View>
+
+          <Text style={ms.presetLabel}>Förslag per idrott – ersätter listan:</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
+            {SPORTS.map((sport) => (
+              <Pressable key={sport.name} onPress={() => applyPreset(sport)} style={ms.presetChip}>
+                <Text style={ms.presetChipText}>{sport.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={ms.hint}>
+            Tryck på ett moment ovan för att ta bort det. Momentnamnet hamnar i klippets filnamn.
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const ms = StyleSheet.create({
+  editChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingVertical: 8,
+    paddingLeft: 15,
+    paddingRight: 11,
+    borderRadius: 99,
+    backgroundColor: T.courtLite,
+  },
+  editChipText: { color: T.line, fontFamily: F.cond700, fontSize: 15, letterSpacing: 0.8 },
+  editChipX: { color: T.rec, fontSize: 15, lineHeight: 17 },
+  presetLabel: { color: T.dim, fontFamily: F.body, fontSize: 12.5, marginTop: 14, marginBottom: 8 },
+  presetChip: {
+    paddingVertical: 7,
+    paddingHorizontal: 13,
+    borderRadius: 99,
+    backgroundColor: "#080E26",
+    borderWidth: 1.5,
+    borderColor: T.courtLite,
+  },
+  presetChipText: { color: T.mut, fontFamily: F.body600, fontSize: 13 },
+  hint: { color: T.dim, fontFamily: F.body, fontSize: 12.5, marginTop: 12, lineHeight: 18 },
+});
 
 const s = StyleSheet.create({
   empty: { color: T.dim, fontFamily: F.body, fontSize: 14, lineHeight: 21 },

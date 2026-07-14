@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { loadJSON, saveJSON } from "../lib/persist";
+import { DEFAULT_MOMENTS } from "../data/sports";
 
 // Registret är klubbens sanning: en person = en post = (i steg 3) en Drive-mapp.
 // Grupper refererar in i registret via memberIds.
@@ -37,9 +38,20 @@ export function AppProvider({ children }) {
       }));
     },
     addGroup(name) {
-      const group = { id: newId("g"), name: name.trim(), memberIds: [] };
+      const group = {
+        id: newId("g"),
+        name: name.trim(),
+        memberIds: [],
+        moments: [...DEFAULT_MOMENTS],
+      };
       setState((s) => ({ ...s, groups: [...s.groups, group] }));
       return group;
+    },
+    setGroupMoments(groupId, moments) {
+      setState((s) => ({
+        ...s,
+        groups: s.groups.map((g) => (g.id === groupId ? { ...g, moments } : g)),
+      }));
     },
     setGroupMembers(groupId, memberIds) {
       setState((s) => ({

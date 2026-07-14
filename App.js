@@ -16,6 +16,7 @@ import {
 import { T } from "./src/theme";
 import { AppProvider, useApp } from "./src/state/AppContext";
 import { clipCountForGroup } from "./src/lib/clips";
+import { momentsOf } from "./src/data/sports";
 import HomeScreen from "./src/screens/HomeScreen";
 import GroupScreen from "./src/screens/GroupScreen";
 import QueueRecordScreen from "./src/screens/QueueRecordScreen";
@@ -56,7 +57,7 @@ function Root() {
     setSession({
       groupId: g.id,
       presentIds: [...g.memberIds],
-      moment: "Kantskott",
+      moment: momentsOf(g)[0],
       tab: "prep",
       filmMode: "spont",
       order: null,
