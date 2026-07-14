@@ -5,8 +5,9 @@ import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
 import { Chip } from "../components/ui";
 import { listClips, deleteClip, reassignClip } from "../lib/clips";
+import { hasReview } from "../lib/review";
 
-export default function ReviewTab({ group, session }) {
+export default function ReviewTab({ group, session, onOpenReview }) {
   const { registry } = useApp();
   const [clips, setClips] = useState(() => safeList(group.id));
   const [filter, setFilter] = useState("Alla");
@@ -72,6 +73,7 @@ export default function ReviewTab({ group, session }) {
             onDelete={() => confirmDelete(item)}
             present={present}
             onReassigned={refresh}
+            onOpenReview={onOpenReview}
           />
         )}
       />
@@ -88,13 +90,21 @@ function safeList(groupId) {
   }
 }
 
-function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned }) {
+function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, onOpenReview }) {
   const [assigning, setAssigning] = useState(false);
+  const review = hasReview(clip.file);
 
   const time = clip.ts
     ? new Date(clip.ts).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })
     : "";
   const len = clip.durationMs ? fmtDur(clip.durationMs) : null;
+
+  const confirmRedo = () => {
+    Alert.alert("Gör om genomgången?", "Den gamla genomgången ersätts.", [
+      { text: "Avbryt", style: "cancel" },
+      { text: "Gör om", style: "destructive", onPress: () => onOpenReview(clip, "record") },
+    ]);
+  };
 
   return (
     <Pressable
@@ -143,6 +153,23 @@ function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned })
             </Pressable>
           </View>
         )}
+
+        <View style={s.reviewRow}>
+          {review ? (
+            <>
+              <Pressable onPress={() => onOpenReview(clip, "play")} style={s.reviewBtn}>
+                <Text style={s.reviewBtnText}>▶ Genomgång</Text>
+              </Pressable>
+              <Pressable onPress={confirmRedo} style={s.reviewBtnGhost}>
+                <Text style={s.reviewBtnGhostText}>Gör om</Text>
+              </Pressable>
+            </>
+          ) : (
+            <Pressable onPress={() => onOpenReview(clip, "record")} style={s.reviewBtnGhost}>
+              <Text style={s.reviewBtnGhostText}>🎙 Spela in genomgång</Text>
+            </Pressable>
+          )}
+        </View>
 
         <Text style={s.status}>
           {clip.guest
@@ -228,7 +255,22 @@ const s = StyleSheet.create({
     paddingHorizontal: 13,
   },
   assignChipText: { color: T.line, fontFamily: F.body600, fontSize: 13 },
-  status: { color: T.dim, fontFamily: F.body, fontSize: 12, marginTop: 8 },
+  reviewRow: { flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" },
+  reviewBtn: {
+    backgroundColor: "#123524",
+    borderRadius: 99,
+    paddingVertical: 6,
+    paddingHorizontal: 13,
+  },
+  reviewBtnText: { color: T.green, fontFamily: F.body600, fontSize: 13 },
+  reviewBtnGhost: {
+    borderWidth: 1.5,
+    borderColor: T.accent,
+    borderRadius: 99,
+    paddingVertical: 5,
+    paddingHorizontal: 13,
+  },
+  reviewBtnGhostText: { color: T.accent, fontFamily: F.body600, fontSize: 13 },
   playIcon: { color: T.accent, fontSize: 16, alignSelf: "center", padding: 4 },
   playerWrap: {
     marginHorizontal: 16,

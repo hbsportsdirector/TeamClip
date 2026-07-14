@@ -16,4 +16,10 @@ Obs: expo-status-bar får INTE stå i plugins-listan i app.json på SDK 54.)
   (`src/screens/GroupScreen.js` + `src/tabs/`), spontant läge (`src/screens/SpontRecordScreen.js`)
   och klippmetadata (spelar-id, grupp, moment, gästflagga, längd) i `clips-index.json`.
   Gästklipp kan flyttas till riktig spelare i Granska (filen döps om). Nästa: steg 3 (Drive).
+- Moment är redigerbara per grupp med idrottsförslag (`src/data/sports.js`, editor i Förbered).
+- Genomgångar (steg 4, utökad version): tränaren pratar över klippet, pausar och ritar
+  (`src/screens/ReviewSessionScreen.js` + `src/lib/review.js`). Ljudet sparas som `<klippbas>.m4a`
+  (spec:ens basnamnskonvention, laddas upp bredvid klippet i steg 3), händelser/ritning i
+  `<klippbas>.review.json`. Synkad uppspelning sker i appen; inbränd exportvideo kräver ffmpeg
+  och development build – medvetet framskjutet tills appen lämnar Expo Go.
 - Testas i Expo Go (`npx expo start`), därför inga bibliotek med egna native-moduler utanför Expo SDK.

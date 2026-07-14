@@ -21,6 +21,7 @@ import HomeScreen from "./src/screens/HomeScreen";
 import GroupScreen from "./src/screens/GroupScreen";
 import QueueRecordScreen from "./src/screens/QueueRecordScreen";
 import SpontRecordScreen from "./src/screens/SpontRecordScreen";
+import ReviewSessionScreen from "./src/screens/ReviewSessionScreen";
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -99,7 +100,13 @@ function Root() {
 
   return (
     <SafeAreaView style={s.safe}>
-      {route.name === "group" && group ? (
+      {route.name === "review" && group ? (
+        <ReviewSessionScreen
+          clip={route.clip}
+          mode={route.mode}
+          onClose={() => setRoute({ name: "group" })}
+        />
+      ) : route.name === "group" && group ? (
         <GroupScreen
           group={group}
           session={session}
@@ -107,6 +114,7 @@ function Root() {
           onBack={closeGroup}
           onStartSpont={(player) => setRoute({ name: "spont", player })}
           onStartQueue={() => setRoute({ name: "queue" })}
+          onOpenReview={(clip, mode) => setRoute({ name: "review", clip, mode })}
           clipCount={clipCountForGroup(group.id)}
         />
       ) : (

@@ -13,6 +13,7 @@ export default function GroupScreen({
   onBack,
   onStartSpont,
   onStartQueue,
+  onOpenReview,
   clipCount,
 }) {
   const tab = session.tab;
@@ -41,7 +42,9 @@ export default function GroupScreen({
             onStartQueue={onStartQueue}
           />
         )}
-        {tab === "review" && <ReviewTab group={group} session={session} />}
+        {tab === "review" && (
+          <ReviewTab group={group} session={session} onOpenReview={onOpenReview} />
+        )}
       </View>
 
       <View style={s.nav}>

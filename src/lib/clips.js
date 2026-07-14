@@ -1,5 +1,6 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { loadJSON, saveJSON } from "./persist";
+import { deleteReview, renameReviewFiles } from "./review";
 
 // Videofilerna ligger i dokumentkatalogen clips/ med spec:ens filnamnsformat:
 //   ÅÅÅÅ-MM-DD_<Grupp>_<Moment>_<Spelare>_<löpnr>.mp4
@@ -157,6 +158,7 @@ export function reassignClip(fileName, { player, playerId }) {
   const newName = `${p.date}_${sanitize(entry.group || p.group)}_${sanitize(entry.moment)}_${sanitize(player)}_${pad(p.seq, 3)}.mp4`;
   try {
     new File(clipsDir(), fileName).move(new File(clipsDir(), newName));
+    renameReviewFiles(fileName, newName);
     entry.file = newName;
   } catch (e) {
     console.warn("Kunde inte döpa om klippfil:", e);
@@ -174,6 +176,7 @@ export function deleteClip(fileName) {
   } catch (e) {
     console.warn("Kunde inte ta bort klippfil:", e);
   }
+  deleteReview(fileName);
   writeIndex(readIndex().filter((c) => c.file !== fileName));
 }
 

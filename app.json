@@ -30,7 +30,8 @@
           "cameraPermission": "TeamClip använder kameran för att filma träningsklipp på spelarna.",
           "microphonePermission": "TeamClip använder mikrofonen för ljudet i klippen och för röstmemon."
         }
-      ]
+      ],
+      "expo-audio"
     ]
   }
 }
