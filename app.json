@@ -41,7 +41,8 @@
       ],
       "expo-audio",
       "@react-native-google-signin/google-signin",
-      "expo-asset"
+      "expo-asset",
+      "./plugins/withFfmpegAar.js"
     ],
     "extra": {
       "eas": {

@@ -65,9 +65,12 @@ function nextSeq(index) {
 }
 
 function listFiles() {
+  // exportvideor (<bas>_genomgang.mp4) är härledda filer, inte klipp
   return ensureClipsDir()
     .list()
-    .filter((f) => f instanceof File && f.name.endsWith(".mp4"));
+    .filter(
+      (f) => f instanceof File && f.name.endsWith(".mp4") && !f.name.endsWith("_genomgang.mp4")
+    );
 }
 
 // Sparningar serialiseras så att två snabba klipp inte skriver över
@@ -103,7 +106,7 @@ async function doSave(tempUri, { player, playerId, groupId, group, moment, guest
   return { ...entry, uri: src.uri };
 }
 
-export function listClips(groupId) {
+export function listClips(groupId, { includeArchived = false } = {}) {
   const index = readIndex();
   const files = listFiles();
   const indexed = new Set(index.map((c) => c.file));
@@ -136,8 +139,23 @@ export function listClips(groupId) {
   const sizes = new Map(files.map((f) => [f.name, f.size]));
   return alive
     .filter((c) => (groupId ? c.groupId === groupId : true))
+    .filter((c) => includeArchived || !c.archived)
     .sort((a, b) => b.ts - a.ts)
     .map((c) => ({ ...c, uri: new File(dir, c.file).uri, size: sizes.get(c.file) ?? 0 }));
+}
+
+// "Passet klart": göm gruppens klipp från Granska-vyn utan att radera något
+export function archiveGroupClips(groupId) {
+  const index = readIndex();
+  let n = 0;
+  for (const c of index) {
+    if (c.groupId === groupId && !c.archived) {
+      c.archived = true;
+      n++;
+    }
+  }
+  if (n > 0) writeIndex(index);
+  return n;
 }
 
 export function clipCountForGroup(groupId) {

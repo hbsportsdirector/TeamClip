@@ -65,7 +65,7 @@ function pendingWork() {
   const emailOf = (playerId) => registry.find((r) => r.id === playerId)?.email ?? "";
   const work = [];
 
-  for (const clip of listClips()) {
+  for (const clip of listClips(undefined, { includeArchived: true })) {
     const target = clip.guest
       ? { path: ["TeamClip", clip.group || "Grupp", "Gäster"] }
       : {
@@ -79,9 +79,13 @@ function pendingWork() {
     if (fileExists(audio) && u[audio]?.status !== "done") {
       work.push({ file: audio, mime: "audio/mp4", ...target });
     }
+    const exportVideo = clip.file.replace(/\.mp4$/, "_genomgang.mp4");
+    if (fileExists(exportVideo) && u[exportVideo]?.status !== "done") {
+      work.push({ file: exportVideo, mime: "video/mp4", ...target });
+    }
   }
 
-  for (const mr of listMultiReviews()) {
+  for (const mr of listMultiReviews(undefined, { includeArchived: true })) {
     const audio = mr.name.replace(".multireview.json", ".m4a");
     if (fileExists(audio) && u[audio]?.status !== "done") {
       work.push({

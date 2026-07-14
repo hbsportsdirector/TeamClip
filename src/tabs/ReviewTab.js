@@ -4,26 +4,48 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
 import { Chip } from "../components/ui";
-import { listClips, deleteClip, reassignClip } from "../lib/clips";
-import { hasReview, listMultiReviews, deleteMultiReview } from "../lib/review";
+import { listClips, deleteClip, reassignClip, archiveGroupClips } from "../lib/clips";
+import {
+  hasReview,
+  listMultiReviews,
+  deleteMultiReview,
+  archiveMultiReviews,
+} from "../lib/review";
 import * as uploadQueue from "../lib/uploadQueue";
+import * as exportReview from "../lib/exportReview";
 
 export default function ReviewTab({ group, session, onOpenReview }) {
   const { registry } = useApp();
-  const [clips, setClips] = useState(() => safeList(group.id));
-  const [multiReviews, setMultiReviews] = useState(() => listMultiReviews(group.id));
+  const [allClips, setAllClips] = useState(() => safeList(group.id));
+  const [allMultiReviews, setAllMultiReviews] = useState(() =>
+    listMultiReviews(group.id, { includeArchived: true })
+  );
   const [filter, setFilter] = useState("Alla");
   const [selected, setSelected] = useState(null);
 
   const refresh = useCallback(() => {
-    setClips(safeList(group.id));
-    setMultiReviews(listMultiReviews(group.id));
+    setAllClips(safeList(group.id));
+    setAllMultiReviews(listMultiReviews(group.id, { includeArchived: true }));
   }, [group.id]);
+
+  const clips = allClips.filter((c) => !c.archived);
+  const archivedClips = allClips.filter((c) => c.archived);
+  const multiReviews = allMultiReviews.filter((mr) => !mr.archived);
+  const archivedMultiReviews = allMultiReviews.filter((mr) => mr.archived);
 
   const [, setUploadTick] = useState(0);
   useEffect(() => {
-    uploadQueue.kick();
-    return uploadQueue.subscribe(() => setUploadTick((t) => t + 1));
+    // exporter först så att färdiga genomgångsvideor kommer med i kön
+    exportReview.kick().then(() => uploadQueue.kick());
+    const un1 = uploadQueue.subscribe(() => setUploadTick((t) => t + 1));
+    const un2 = exportReview.subscribe(() => {
+      setUploadTick((t) => t + 1);
+      uploadQueue.kick();
+    });
+    return () => {
+      un1();
+      un2();
+    };
   }, []);
 
   const present = session.presentIds
@@ -31,23 +53,33 @@ export default function ReviewTab({ group, session, onOpenReview }) {
     .filter(Boolean);
 
   const hasGuests = clips.some((c) => c.guest);
-  const filters = ["Alla", ...present.map((p) => p.name), ...(hasGuests ? ["Gäster"] : [])];
-  const shown = clips.filter((c) =>
-    filter === "Alla" ? true : filter === "Gäster" ? c.guest : c.player === filter && !c.guest
-  );
+  const filters = [
+    "Alla",
+    ...present.map((p) => p.name),
+    ...(hasGuests ? ["Gäster"] : []),
+    ...(archivedClips.length > 0 || archivedMultiReviews.length > 0 ? ["Arkiv"] : []),
+  ];
+  const shown =
+    filter === "Arkiv"
+      ? archivedClips
+      : clips.filter((c) =>
+          filter === "Alla" ? true : filter === "Gäster" ? c.guest : c.player === filter && !c.guest
+        );
 
-  const shownMultiReviews = multiReviews.filter((mr) =>
-    filter === "Alla" ? true : mr.player === filter
-  );
+  const shownMultiReviews =
+    filter === "Arkiv"
+      ? archivedMultiReviews
+      : multiReviews.filter((mr) => (filter === "Alla" ? true : mr.player === filter));
 
   // Erbjud fleklippsgenomgång så fort alla dagens klipp i vyn hör till en
   // och samma spelare – även under "Alla" när bara en spelare har filmats.
   // Bara dagens: en genomgång gäller passet, inte veckor av gamla klipp.
   let multiCandidate = null;
   const todayKey = new Date().toDateString();
-  const eligible = shown.filter(
-    (c) => !c.guest && new Date(c.ts).toDateString() === todayKey
-  );
+  const eligible =
+    filter === "Arkiv"
+      ? []
+      : shown.filter((c) => !c.guest && new Date(c.ts).toDateString() === todayKey);
   if (eligible.length >= 2 && new Set(eligible.map((c) => c.player)).size === 1) {
     multiCandidate = {
       name: eligible[0].player,
@@ -86,6 +118,27 @@ export default function ReviewTab({ group, session, onOpenReview }) {
         },
       },
       "record"
+    );
+  };
+
+  const confirmFinishSession = () => {
+    const n = clips.length;
+    Alert.alert(
+      "Passet klart?",
+      `${n} klipp och ${multiReviews.length} genomgångar flyttas till Arkiv. Inget raderas – allt finns kvar där och i Drive.`,
+      [
+        { text: "Avbryt", style: "cancel" },
+        {
+          text: "Passet klart",
+          onPress: () => {
+            archiveGroupClips(group.id);
+            archiveMultiReviews(group.id);
+            setFilter("Alla");
+            setSelected(null);
+            refresh();
+          },
+        },
+      ]
     );
   };
 
@@ -175,10 +228,23 @@ export default function ReviewTab({ group, session, onOpenReview }) {
           </>
         }
         ListEmptyComponent={
-          <Text style={s.empty}>
-            Inga klipp än.{"\n"}Gå till Filma och fånga ett skott – klippen dyker upp här,
-            sorterade per spelare.
-          </Text>
+          shownMultiReviews.length === 0 ? (
+            <Text style={s.empty}>
+              {filter === "Arkiv"
+                ? "Arkivet är tomt."
+                : "Inga klipp än.\nGå till Filma och fånga ett skott – klippen dyker upp här, sorterade per spelare."}
+            </Text>
+          ) : null
+        }
+        ListFooterComponent={
+          filter !== "Arkiv" && clips.length > 0 ? (
+            <Pressable onPress={confirmFinishSession} style={s.finishBtn}>
+              <Text style={s.finishBtnText}>✓ Passet klart – rensa vyn</Text>
+              <Text style={s.finishBtnSub}>
+                Flyttar {clips.length} klipp till Arkiv. Inget raderas.
+              </Text>
+            </Pressable>
+          ) : null
         }
         renderItem={({ item }) =>
           item.isHeader ? (
@@ -301,6 +367,9 @@ function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, o
         </View>
 
         <Text style={s.status}>{uploadStatusText(clip)}</Text>
+        {review && exportStatusText(clip) && (
+          <Text style={s.status}>{exportStatusText(clip)}</Text>
+        )}
       </View>
       <Text style={s.playIcon}>{isSelected ? "▮▮" : "▶"}</Text>
     </Pressable>
@@ -323,6 +392,19 @@ const fmtDur = (ms) => {
   const sec = Math.round(ms / 1000);
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 };
+
+function exportStatusText(clip) {
+  const st = exportReview.getExportStatus(clip.file);
+  if (st === "exporting") return "🎬 Skapar genomgångsvideo…";
+  if (st === "error") return "⚠ Videoexporten misslyckades";
+  if (st === "done") {
+    const up = uploadQueue.getStatus(clip.file.replace(/\.mp4$/, "_genomgang.mp4"));
+    return up?.status === "done"
+      ? "🎬 Genomgångsvideo ✓ i Drive"
+      : "🎬 Genomgångsvideo klar – laddas upp";
+  }
+  return null;
+}
 
 function uploadStatusText(clip) {
   const st = uploadQueue.getStatus(clip.file);
@@ -454,6 +536,17 @@ const s = StyleSheet.create({
     marginTop: 10,
     marginBottom: 8,
   },
+  finishBtn: {
+    marginTop: 16,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: T.green,
+    alignItems: "center",
+  },
+  finishBtnText: { color: T.green, fontFamily: F.cond700, fontSize: 17, letterSpacing: 0.5 },
+  finishBtnSub: { color: T.dim, fontFamily: F.body, fontSize: 12, marginTop: 2 },
   playIcon: { color: T.accent, fontSize: 16, alignSelf: "center", padding: 4 },
   playerWrap: {
     marginHorizontal: 16,

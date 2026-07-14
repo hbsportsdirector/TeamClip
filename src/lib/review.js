@@ -11,6 +11,7 @@ const clipsDir = () => new Directory(Paths.document, "clips");
 const base = (clipFile) => clipFile.replace(/\.mp4$/, "");
 export const reviewAudioName = (clipFile) => `${base(clipFile)}.m4a`;
 export const reviewLogName = (clipFile) => `${base(clipFile)}.review.json`;
+const exportVideoName = (clipFile) => `${base(clipFile)}_genomgang.mp4`;
 
 export function hasReview(clipFile) {
   try {
@@ -47,7 +48,7 @@ export function loadReview(clipFile) {
 
 export function deleteReview(clipFile) {
   const dir = clipsDir();
-  for (const name of [reviewAudioName(clipFile), reviewLogName(clipFile)]) {
+  for (const name of [reviewAudioName(clipFile), reviewLogName(clipFile), exportVideoName(clipFile)]) {
     try {
       const f = new File(dir, name);
       if (f.exists) f.delete();
@@ -63,6 +64,7 @@ export function renameReviewFiles(oldClipFile, newClipFile) {
   const pairs = [
     [reviewAudioName(oldClipFile), reviewAudioName(newClipFile)],
     [reviewLogName(oldClipFile), reviewLogName(newClipFile)],
+    [exportVideoName(oldClipFile), exportVideoName(newClipFile)],
   ];
   for (const [from, to] of pairs) {
     try {
@@ -99,7 +101,7 @@ export async function saveMultiReview(meta, tempAudioUri, log) {
   return `${base}${MULTI_SUFFIX}`;
 }
 
-export function listMultiReviews(groupId) {
+export function listMultiReviews(groupId, { includeArchived = false } = {}) {
   try {
     const dir = clipsDir();
     if (!dir.exists) return [];
@@ -109,6 +111,7 @@ export function listMultiReviews(groupId) {
       try {
         const meta = JSON.parse(f.textSync());
         if (groupId && meta.groupId !== groupId) continue;
+        if (!includeArchived && meta.archived) continue;
         const audio = new File(dir, f.name.replace(MULTI_SUFFIX, ".m4a"));
         if (!audio.exists) continue;
         out.push({
@@ -118,6 +121,7 @@ export function listMultiReviews(groupId) {
           clipCount: meta.clips?.length ?? 0,
           durationMs: meta.durationMs ?? 0,
           createdAt: meta.createdAt ?? 0,
+          archived: !!meta.archived,
         });
       } catch {}
     }
@@ -125,6 +129,24 @@ export function listMultiReviews(groupId) {
   } catch (e) {
     console.warn("Kunde inte lista genomgångar:", e);
     return [];
+  }
+}
+
+export function archiveMultiReviews(groupId) {
+  try {
+    const dir = clipsDir();
+    if (!dir.exists) return;
+    for (const f of dir.list()) {
+      if (!(f instanceof File) || !f.name.endsWith(MULTI_SUFFIX)) continue;
+      try {
+        const meta = JSON.parse(f.textSync());
+        if (meta.groupId !== groupId || meta.archived) continue;
+        meta.archived = true;
+        f.write(JSON.stringify(meta));
+      } catch {}
+    }
+  } catch (e) {
+    console.warn("Kunde inte arkivera genomgångar:", e);
   }
 }
 

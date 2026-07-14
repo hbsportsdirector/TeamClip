@@ -1,0 +1,19 @@
+diff --git a/node_modules/ffmpeg-kit-react-native/android/build.gradle b/node_modules/ffmpeg-kit-react-native/android/build.gradle
+index 2909280..916d11d 100644
+--- a/node_modules/ffmpeg-kit-react-native/android/build.gradle
++++ b/node_modules/ffmpeg-kit-react-native/android/build.gradle
+@@ -123,7 +123,13 @@ repositories {
+   }
+ }
+ 
++// ffmpeg-kit-binärerna drogs från Maven Central 2025-04-01 (projektet pensionerat).
++// I stället används en vendrad AAR ur repot (vendor/ffmpeg-kit-full-gpl.aar,
++// checksumma i vendor/CHECKSUMS.md). Appmodulen länkar in den via flatDir
++// (se plugins/withFfmpegAar.js); här räcker compileOnly för kompileringen.
++def ffmpegKitAarFile = new File(rootProject.projectDir, '../vendor/ffmpeg-kit-full-gpl.aar')
++
+ dependencies {
+   api 'com.facebook.react:react-native:+'
+-  implementation 'com.arthenica:ffmpeg-kit-' + safePackageName(safeExtGet('ffmpegKitPackage', 'https')) + ':' + safePackageVersion(safeExtGet('ffmpegKitPackage', 'https'))
++  compileOnly files(ffmpegKitAarFile)
+ }
