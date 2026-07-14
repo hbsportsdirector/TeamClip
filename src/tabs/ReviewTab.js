@@ -37,9 +37,15 @@ export default function ReviewTab({ group, session, onOpenReview }) {
   const [allMultiReviews, setAllMultiReviews] = useState(() =>
     listMultiReviews(group.id, { includeArchived: true })
   );
-  const [filter, setFilter] = useState("Alla");
+  const [filter, setFilterRaw] = useState("Alla");
+  const [subFilter, setSubFilter] = useState("Alla");
   const [selected, setSelected] = useState(null);
   const [dialog, setDialog] = useState(null);
+
+  const setFilter = (f) => {
+    setFilterRaw(f);
+    setSubFilter("Alla");
+  };
 
   const refresh = useCallback(() => {
     setAllClips(safeList(group.id));
@@ -79,7 +85,9 @@ export default function ReviewTab({ group, session, onOpenReview }) {
     ...(favoriteClips.length > 0 || favoriteMultiReviews.length > 0 ? ["⭐ Favoriter"] : []),
     ...(archivedClips.length > 0 || archivedMultiReviews.length > 0 ? ["Arkiv"] : []),
   ];
-  const shown =
+  // Arkiv och Favoriter kan snävas in per spelare via en andra chiprad
+  const inSpecialView = filter === "Arkiv" || filter === "⭐ Favoriter";
+  const baseShown =
     filter === "Arkiv"
       ? archivedClips
       : filter === "⭐ Favoriter"
@@ -87,13 +95,30 @@ export default function ReviewTab({ group, session, onOpenReview }) {
         : clips.filter((c) =>
             filter === "Alla" ? true : filter === "Gäster" ? c.guest : c.player === filter && !c.guest
           );
+  const bySub = (player, guest) =>
+    subFilter === "Alla" ? true : subFilter === "Gäster" ? guest : player === subFilter && !guest;
+  const shown = inSpecialView ? baseShown.filter((c) => bySub(c.player, c.guest)) : baseShown;
 
-  const shownMultiReviews =
+  const subHasGuests = inSpecialView && baseShown.some((c) => c.guest);
+
+  const baseMultiReviews =
     filter === "Arkiv"
       ? archivedMultiReviews
       : filter === "⭐ Favoriter"
         ? favoriteMultiReviews
         : multiReviews.filter((mr) => (filter === "Alla" ? true : mr.player === filter));
+  const shownMultiReviews = inSpecialView
+    ? baseMultiReviews.filter((mr) => bySub(mr.player, false))
+    : baseMultiReviews;
+
+  const subPlayers = inSpecialView
+    ? [
+        ...new Set([
+          ...baseShown.filter((c) => !c.guest).map((c) => c.player),
+          ...baseMultiReviews.map((mr) => mr.player),
+        ]),
+      ].sort()
+    : [];
 
   // Erbjud fleklippsgenomgång så fort alla dagens klipp i vyn hör till en
   // och samma spelare – även under "Alla" när bara en spelare har filmats.
@@ -213,6 +238,19 @@ export default function ReviewTab({ group, session, onOpenReview }) {
           <Chip key={f} label={f} active={filter === f} onPress={() => setFilter(f)} />
         ))}
       </ScrollView>
+
+      {inSpecialView && (subPlayers.length > 1 || subHasGuests) && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={s.filterRow}
+        >
+          {["Alla", ...subPlayers, ...(subHasGuests ? ["Gäster"] : [])].map((f) => (
+            <Chip key={f} label={f} active={subFilter === f} onPress={() => setSubFilter(f)} />
+          ))}
+        </ScrollView>
+      )}
 
       {selected && <Player key={selected.uri} clip={selected} />}
 
