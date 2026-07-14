@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, Pressable, ScrollView, FlatList, StyleSheet, Alert } from "react-native";
+import { View, Text, Pressable, ScrollView, FlatList, StyleSheet } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
 import { Chip } from "../components/ui";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { listClips, deleteClip, reassignClip, archiveGroupClips } from "../lib/clips";
 import {
   hasReview,
@@ -22,6 +23,7 @@ export default function ReviewTab({ group, session, onOpenReview }) {
   );
   const [filter, setFilter] = useState("Alla");
   const [selected, setSelected] = useState(null);
+  const [dialog, setDialog] = useState(null);
 
   const refresh = useCallback(() => {
     setAllClips(safeList(group.id));
@@ -122,53 +124,47 @@ export default function ReviewTab({ group, session, onOpenReview }) {
   };
 
   const confirmFinishSession = () => {
-    const n = clips.length;
-    Alert.alert(
-      "Passet klart?",
-      `${n} klipp och ${multiReviews.length} genomgångar flyttas till Arkiv. Inget raderas – allt finns kvar där och i Drive.`,
-      [
-        { text: "Avbryt", style: "cancel" },
-        {
-          text: "Passet klart",
-          onPress: () => {
-            archiveGroupClips(group.id);
-            archiveMultiReviews(group.id);
-            setFilter("Alla");
-            setSelected(null);
-            refresh();
-          },
-        },
-      ]
-    );
+    setDialog({
+      title: "Passet klart?",
+      message: `${clips.length} klipp${
+        multiReviews.length > 0 ? ` och ${multiReviews.length} genomgångar` : ""
+      } flyttas till Arkiv. Inget raderas – allt finns kvar där och i Drive.`,
+      confirmLabel: "Passet klart",
+      onConfirm: () => {
+        archiveGroupClips(group.id);
+        archiveMultiReviews(group.id);
+        setFilter("Alla");
+        setSelected(null);
+        refresh();
+      },
+    });
   };
 
   const confirmDeleteMulti = (mr) => {
-    Alert.alert("Ta bort genomgång?", `${mr.player} · ${mr.clipCount} klipp`, [
-      { text: "Avbryt", style: "cancel" },
-      {
-        text: "Ta bort",
-        style: "destructive",
-        onPress: () => {
-          deleteMultiReview(mr.name);
-          refresh();
-        },
+    setDialog({
+      title: "Ta bort genomgång?",
+      message: `${mr.player} · ${mr.clipCount} klipp i följd. Själva klippen påverkas inte.`,
+      confirmLabel: "Ta bort",
+      destructive: true,
+      onConfirm: () => {
+        deleteMultiReview(mr.name);
+        refresh();
       },
-    ]);
+    });
   };
 
   const confirmDelete = (clip) => {
-    Alert.alert("Ta bort klipp?", `${clip.player} · ${clip.moment}`, [
-      { text: "Avbryt", style: "cancel" },
-      {
-        text: "Ta bort",
-        style: "destructive",
-        onPress: () => {
-          deleteClip(clip.file);
-          if (selected?.file === clip.file) setSelected(null);
-          refresh();
-        },
+    setDialog({
+      title: "Ta bort klipp?",
+      message: `${clip.player} · ${clip.moment}${hasReview(clip.file) ? " · genomgången följer med" : ""}`,
+      confirmLabel: "Ta bort",
+      destructive: true,
+      onConfirm: () => {
+        deleteClip(clip.file);
+        if (selected?.file === clip.file) setSelected(null);
+        refresh();
       },
-    ]);
+    });
   };
 
   return (
@@ -222,7 +218,12 @@ export default function ReviewTab({ group, session, onOpenReview }) {
                     })}
                   </Text>
                 </View>
-                <Text style={s.multiCardPlay}>▶</Text>
+                <View style={s.sideCol}>
+                  <Text style={s.multiCardPlay}>▶</Text>
+                  <Pressable onPress={() => confirmDeleteMulti(mr)} hitSlop={8}>
+                    <Text style={s.trash}>🗑</Text>
+                  </Pressable>
+                </View>
               </Pressable>
             ))}
           </>
@@ -258,10 +259,12 @@ export default function ReviewTab({ group, session, onOpenReview }) {
               present={present}
               onReassigned={refresh}
               onOpenReview={onOpenReview}
+              ask={setDialog}
             />
           )
         }
       />
+      <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
     </View>
   );
 }
@@ -275,7 +278,7 @@ function safeList(groupId) {
   }
 }
 
-function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, onOpenReview }) {
+function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, onOpenReview, ask }) {
   const [assigning, setAssigning] = useState(false);
   const review = hasReview(clip.file);
 
@@ -285,14 +288,13 @@ function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, o
   const len = clip.durationMs ? fmtDur(clip.durationMs) : null;
 
   const confirmRedo = () => {
-    Alert.alert("Gör om genomgången?", "Den gamla genomgången ersätts.", [
-      { text: "Avbryt", style: "cancel" },
-      {
-        text: "Gör om",
-        style: "destructive",
-        onPress: () => onOpenReview({ kind: "single", clip }, "record"),
-      },
-    ]);
+    ask({
+      title: "Gör om genomgången?",
+      message: "Den gamla genomgången ersätts – klippet påverkas inte.",
+      confirmLabel: "Gör om",
+      destructive: true,
+      onConfirm: () => onOpenReview({ kind: "single", clip }, "record"),
+    });
   };
 
   return (
@@ -371,7 +373,12 @@ function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, o
           <Text style={s.status}>{exportStatusText(clip)}</Text>
         )}
       </View>
-      <Text style={s.playIcon}>{isSelected ? "▮▮" : "▶"}</Text>
+      <View style={s.sideCol}>
+        <Text style={s.playIcon}>{isSelected ? "▮▮" : "▶"}</Text>
+        <Pressable onPress={onDelete} hitSlop={8}>
+          <Text style={s.trash}>🗑</Text>
+        </Pressable>
+      </View>
     </Pressable>
   );
 }
@@ -547,7 +554,9 @@ const s = StyleSheet.create({
   },
   finishBtnText: { color: T.green, fontFamily: F.cond700, fontSize: 17, letterSpacing: 0.5 },
   finishBtnSub: { color: T.dim, fontFamily: F.body, fontSize: 12, marginTop: 2 },
-  playIcon: { color: T.accent, fontSize: 16, alignSelf: "center", padding: 4 },
+  playIcon: { color: T.accent, fontSize: 16, padding: 4 },
+  sideCol: { justifyContent: "space-between", alignItems: "center", paddingVertical: 2 },
+  trash: { fontSize: 13, opacity: 0.55, padding: 4 },
   playerWrap: {
     marginHorizontal: 16,
     marginBottom: 12,
