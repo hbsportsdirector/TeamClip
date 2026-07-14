@@ -26,9 +26,16 @@ Obs: expo-status-bar får INTE stå i plugins-listan i app.json på SDK 54.)
   "»"-knapp för manuellt byte). Sparas som `<bas>.m4a` + `<bas>.multireview.json` med egen
   klippinfo; 'clip'-händelser i loggen byter videokälla. Startas från spelarfiltret i Granska.
   OBS: 'clip'-index pekar på positioner i ursprungslistan – borttagna klipp blir null-platser.
-- Steg 3 (Drive) BLOCKERAS av Expo Go: Google-inloggning kräver native-moduler
-  (https://docs.expo.dev/guides/google-authentication/ – "can't be used in Expo Go").
-  Vägen framåt är en development build via EAS, vilket samtidigt låser upp ffmpeg-kit
-  (inbrända exportgenomgångar) och react-native-vision-camera (äkta klippöverlapp).
-  Utrett 2026-07-14; beslut om bytet ligger hos användaren.
-- Testas i Expo Go (`npx expo start`), därför inga bibliotek med egna native-moduler utanför Expo SDK.
+- Steg 3 (Drive) är byggt och verifierat på telefon 2026-07-14: Google Sign-In
+  (`@react-native-google-signin`, web-klient-id i `src/config.js`, scope drive.file),
+  mappstruktur/delning/resumable uploads i `src/lib/drive.js`, lokal kö i
+  `src/lib/uploadQueue.js` (status i uploads.json, mapp-cache i drive-state.json),
+  kopplingsvy i `src/screens/DriveScreen.js`. OAuth-klienter ligger i användarens
+  Google Cloud-projekt "TeamClip" (samtyckesskärm i Testing-läge – testanvändare krävs;
+  publiceras inför steg 5, drive.file kräver ingen Google-granskning).
+- Testas numera i DEVELOPMENT BUILD via EAS (`eas build -p android --profile development`),
+  inte Expo Go. Dev-flödet är detsamma: `npx expo start` + skanna QR (appen TeamClip).
+  Detta låser upp ffmpeg-kit (inbrända exportgenomgångar) och react-native-vision-camera
+  (äkta klippöverlapp) som framtida steg. iOS-klient + Apple Developer-konto väntar till
+  TestFlight-fasen. OBS: `npx expo-doctor` efter paketändringar – SDK-dubbletter av
+  native-moduler (t.ex. expo-asset) kraschar APK:n vid start.
