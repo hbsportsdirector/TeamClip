@@ -29,22 +29,32 @@ export default function ReviewTab({ group, session, onOpenReview }) {
     filter === "Alla" ? true : filter === "Gäster" ? c.guest : c.player === filter && !c.guest
   );
 
-  const filterPlayer =
-    filter !== "Alla" && filter !== "Gäster" ? present.find((p) => p.name === filter) : null;
   const shownMultiReviews = multiReviews.filter((mr) =>
     filter === "Alla" ? true : mr.player === filter
   );
 
+  // Erbjud fleklippsgenomgång så fort alla klipp i vyn hör till en och
+  // samma spelare – även under "Alla" när bara en spelare har filmats
+  let multiCandidate = null;
+  const eligible = shown.filter((c) => !c.guest);
+  if (eligible.length >= 2 && new Set(eligible.map((c) => c.player)).size === 1) {
+    multiCandidate = {
+      name: eligible[0].player,
+      id: eligible[0].playerId ?? present.find((p) => p.name === eligible[0].player)?.id ?? null,
+      clips: eligible,
+    };
+  }
+
   const startMultiReview = () => {
     // Klippen i skjutordning (äldst först) så genomgången följer passet
-    const playlistClips = [...shown].sort((a, b) => a.ts - b.ts);
+    const playlistClips = [...multiCandidate.clips].sort((a, b) => a.ts - b.ts);
     onOpenReview(
       {
         kind: "multiRecord",
         clips: playlistClips,
         meta: {
-          player: filterPlayer.name,
-          playerId: filterPlayer.id,
+          player: multiCandidate.name,
+          playerId: multiCandidate.id,
           groupId: group.id,
           group: group.name,
         },
@@ -103,10 +113,10 @@ export default function ReviewTab({ group, session, onOpenReview }) {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
         ListHeaderComponent={
           <>
-            {filterPlayer && shown.length >= 2 && (
+            {multiCandidate && (
               <Pressable onPress={startMultiReview} style={s.multiRecordBtn}>
                 <Text style={s.multiRecordBtnText}>
-                  🎙 Genomgång på alla {filterPlayer.name}s klipp ({shown.length})
+                  🎙 Genomgång på alla {multiCandidate.name}s klipp ({multiCandidate.clips.length})
                 </Text>
                 <Text style={s.multiRecordBtnSub}>
                   Klippen spelas i tur och ordning – prata, pausa och rita rakt igenom
