@@ -41,6 +41,10 @@ Obs: expo-status-bar får INTE stå i plugins-listan i app.json på SDK 54.)
   (flatDir i appmodulen). full-gpl = GPL-kod i bygget; måste ses över före App Store.
   KVAR: ritning inbränd i exporten (kräver rastrering av strecken) och export av
   fleklippsgenomgångar ('clip'-händelser → flera inputs i filtergrafen).
+- EAS UPDATE aktivt sedan 2026-07-15: JS-ändringar skickas OTA till testarna med
+  `eas update --channel preview --message "..."` – ingen ny APK behövs utom vid
+  native-ändringar (nya moduler/plugins → bygg om BÅDA profilerna och skicka ny länk).
+  runtimeVersion-policy: appVersion (bumpa "version" i app.json vid native-ändringar).
 - Testas numera i DEVELOPMENT BUILD via EAS (`eas build -p android --profile development`),
   inte Expo Go. Dev-flödet är detsamma: `npx expo start` + skanna QR (appen TeamClip).
   Detta låser upp ffmpeg-kit (inbrända exportgenomgångar) och react-native-vision-camera
