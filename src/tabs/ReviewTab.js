@@ -268,7 +268,7 @@ export default function ReviewTab({ group, session, onOpenReview }) {
 
 function safeList(groupId) {
   try {
-    return listClips(groupId);
+    return listClips(groupId, { includeArchived: true });
   } catch (e) {
     console.warn("Kunde inte lista klipp:", e);
     return [];
