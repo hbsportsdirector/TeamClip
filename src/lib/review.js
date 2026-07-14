@@ -173,7 +173,11 @@ export function loadMultiReview(name) {
 
 export function deleteMultiReview(name) {
   const dir = clipsDir();
-  for (const n of [name, name.replace(MULTI_SUFFIX, ".m4a")]) {
+  for (const n of [
+    name,
+    name.replace(MULTI_SUFFIX, ".m4a"),
+    name.replace(MULTI_SUFFIX, ".video.mp4"),
+  ]) {
     try {
       const f = new File(dir, n);
       if (f.exists) f.delete();

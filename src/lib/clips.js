@@ -64,13 +64,14 @@ function nextSeq(index) {
   return max + 1;
 }
 
+// Endast filer som följer klippnamnsmönstret räknas som klipp – exportvideor
+// (<bas>_genomgang.mp4, <genomgång>.video.mp4) är härledda filer
+const CLIP_FILE_RE = /^\d{4}-\d{2}-\d{2}_[^_]+_[^_]+_[^_]+_\d+\.mp4$/;
+
 function listFiles() {
-  // exportvideor (<bas>_genomgang.mp4) är härledda filer, inte klipp
   return ensureClipsDir()
     .list()
-    .filter(
-      (f) => f instanceof File && f.name.endsWith(".mp4") && !f.name.endsWith("_genomgang.mp4")
-    );
+    .filter((f) => f instanceof File && CLIP_FILE_RE.test(f.name));
 }
 
 // Sparningar serialiseras så att två snabba klipp inte skriver över

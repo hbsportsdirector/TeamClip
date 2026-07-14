@@ -217,6 +217,7 @@ export default function ReviewTab({ group, session, onOpenReview }) {
                       minute: "2-digit",
                     })}
                   </Text>
+                  <Text style={s.multiCardMeta}>{multiExportStatusText(mr)}</Text>
                 </View>
                 <View style={s.sideCol}>
                   <Text style={s.multiCardPlay}>▶</Text>
@@ -399,6 +400,19 @@ const fmtDur = (ms) => {
   const sec = Math.round(ms / 1000);
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 };
+
+function multiExportStatusText(mr) {
+  const st = exportReview.getMultiExportStatus(mr.name);
+  if (st === "exporting") return "🎬 Skapar genomgångsvideo…";
+  if (st === "error") return "⚠ Videoexporten misslyckades";
+  if (st === "done") {
+    const up = uploadQueue.getStatus(exportReview.multiExportVideoName(mr.name));
+    return up?.status === "done"
+      ? "🎬 Video ✓ i spelarens Drive-mapp"
+      : "🎬 Video klar – laddas upp";
+  }
+  return "🎬 Väntar på videoexport";
+}
 
 function exportStatusText(clip) {
   const st = exportReview.getExportStatus(clip.file);

@@ -1,7 +1,8 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { loadJSON, saveJSON } from "./persist";
-import { listClips } from "./clips";
-import { reviewAudioName, listMultiReviews } from "./review";
+import { listClips, sanitize, todayStr } from "./clips";
+import { listMultiReviews } from "./review";
+import { exportVideoName, multiExportVideoName } from "./exportReview";
 import * as googleAuth from "./googleAuth";
 import { ensureFolderPath, shareFolderOnce, uploadFile } from "./drive";
 
@@ -58,7 +59,10 @@ const fileExists = (name) => {
   }
 };
 
-// Bygger dagens arbetslista: klipp + ev. genomgångsljud som inte är klara
+// Bygger arbetslistan: råklipp + färdiga genomgångsvideor som inte laddats
+// upp. Allt sorteras i datummappar (TeamClip/Spelare/<Namn>/<ÅÅÅÅ-MM-DD>/);
+// delningen ligger på spelarmappen så spelaren ser alla datum. Ljudfilerna
+// (m4a) laddas inte upp – genomgångsvideon ersätter dem i Drive.
 function pendingWork() {
   const u = getUploads();
   const registry = loadJSON("appstate.json", { registry: [] }).registry;
@@ -66,32 +70,35 @@ function pendingWork() {
   const work = [];
 
   for (const clip of listClips(undefined, { includeArchived: true })) {
+    const day = todayStr(new Date(clip.ts || Date.now()));
     const target = clip.guest
-      ? { path: ["TeamClip", clip.group || "Grupp", "Gäster"] }
+      ? { folder: ["TeamClip", clip.group || "Grupp", "Gäster", day] }
       : {
-          path: ["TeamClip", "Spelare", clip.player],
+          folder: ["TeamClip", "Spelare", clip.player, day],
+          sharePath: ["TeamClip", "Spelare", clip.player],
           shareWith: emailOf(clip.playerId),
         };
     if (u[clip.file]?.status !== "done") {
       work.push({ file: clip.file, mime: "video/mp4", ...target });
     }
-    const audio = reviewAudioName(clip.file);
-    if (fileExists(audio) && u[audio]?.status !== "done") {
-      work.push({ file: audio, mime: "audio/mp4", ...target });
-    }
-    const exportVideo = clip.file.replace(/\.mp4$/, "_genomgang.mp4");
+    const exportVideo = exportVideoName(clip.file);
     if (fileExists(exportVideo) && u[exportVideo]?.status !== "done") {
       work.push({ file: exportVideo, mime: "video/mp4", ...target });
     }
   }
 
   for (const mr of listMultiReviews(undefined, { includeArchived: true })) {
-    const audio = mr.name.replace(".multireview.json", ".m4a");
-    if (fileExists(audio) && u[audio]?.status !== "done") {
+    const video = multiExportVideoName(mr.name);
+    if (fileExists(video) && u[video]?.status !== "done") {
+      const d = new Date(mr.createdAt || Date.now());
+      const day = todayStr(d);
+      const hhmm = `${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
       work.push({
-        file: audio,
-        mime: "audio/mp4",
-        path: ["TeamClip", "Spelare", mr.player],
+        file: video,
+        mime: "video/mp4",
+        driveName: `${day}_Genomgang_${sanitize(mr.player)}_${hhmm}.mp4`,
+        folder: ["TeamClip", "Spelare", mr.player, day],
+        sharePath: ["TeamClip", "Spelare", mr.player],
         shareWith: emailOf(mr.playerId),
       });
     }
@@ -125,17 +132,19 @@ export async function kick() {
       setStatus(item.file, { status: "uploading", error: null });
       try {
         const freshToken = (await googleAuth.getAccessToken()) ?? token;
-        const folderId = await ensureFolderPath(freshToken, item.path);
-        if (item.shareWith) {
+        // delningen ligger på spelarmappen, uppladdningen i datummappen
+        if (item.sharePath && item.shareWith) {
           try {
-            await shareFolderOnce(freshToken, folderId, item.shareWith);
+            const shareId = await ensureFolderPath(freshToken, item.sharePath);
+            await shareFolderOnce(freshToken, shareId, item.shareWith);
           } catch (e) {
             console.warn("Kunde inte dela mapp:", e?.message ?? e);
           }
         }
+        const folderId = await ensureFolderPath(freshToken, item.folder);
         const fileId = await uploadFile(freshToken, {
           localUri: fileUri(item.file),
-          name: item.file,
+          name: item.driveName ?? item.file,
           mimeType: item.mime,
           folderId,
         });
