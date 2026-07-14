@@ -100,7 +100,7 @@ async function doSave(tempUri, { player, playerId, groupId, group, moment, guest
   };
   index.push(entry);
   writeIndex(index);
-  return entry;
+  return { ...entry, uri: src.uri };
 }
 
 export function listClips(groupId) {

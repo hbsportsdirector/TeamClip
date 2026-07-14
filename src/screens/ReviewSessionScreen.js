@@ -54,7 +54,15 @@ export default function ReviewSessionScreen({ payload, mode, onClose }) {
         );
       }
     };
-    return <RecordSession playlist={playlist} title={title} onSave={onSave} onClose={onClose} />;
+    return (
+      <RecordSession
+        playlist={playlist}
+        title={title}
+        onSave={onSave}
+        onClose={onClose}
+        cancelLabel={payload.afterSpont ? "‹ Ingen feedback" : "‹ Avbryt"}
+      />
+    );
   }
 
   return <PlayWrapper payload={payload} onClose={onClose} />;
@@ -106,7 +114,7 @@ const swapSource = (video, uri) =>
   video.replaceAsync ? video.replaceAsync(uri) : Promise.resolve(video.replace(uri));
 
 // ——— Inspelning ————————————————————————————————
-function RecordSession({ playlist, title, onSave, onClose }) {
+function RecordSession({ playlist, title, onSave, onClose, cancelLabel = "‹ Avbryt" }) {
   const video = useVideoPlayer(playlist[0].uri, (p) => {
     p.muted = true;
     p.loop = false;
@@ -298,7 +306,7 @@ function RecordSession({ playlist, title, onSave, onClose }) {
     <View style={s.root}>
       <View style={s.header}>
         <Pressable onPress={cancel} hitSlop={10}>
-          <Text style={s.close}>‹ Avbryt</Text>
+          <Text style={s.close}>{cancelLabel}</Text>
         </Pressable>
         <View style={{ alignItems: "center" }}>
           <Text style={s.title}>{title}</Text>
@@ -640,7 +648,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  close: { color: T.mut, fontFamily: F.body600, fontSize: 15, width: 64 },
+  close: { color: T.mut, fontFamily: F.body600, fontSize: 15, minWidth: 64 },
   title: { color: T.line, fontFamily: F.cond700, fontSize: 18, letterSpacing: 0.5 },
   clipIndicator: { color: T.mut, fontFamily: F.body, fontSize: 12, marginTop: 1 },
   recPill: {

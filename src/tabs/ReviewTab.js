@@ -33,16 +33,35 @@ export default function ReviewTab({ group, session, onOpenReview }) {
     filter === "Alla" ? true : mr.player === filter
   );
 
-  // Erbjud fleklippsgenomgång så fort alla klipp i vyn hör till en och
-  // samma spelare – även under "Alla" när bara en spelare har filmats
+  // Erbjud fleklippsgenomgång så fort alla dagens klipp i vyn hör till en
+  // och samma spelare – även under "Alla" när bara en spelare har filmats.
+  // Bara dagens: en genomgång gäller passet, inte veckor av gamla klipp.
   let multiCandidate = null;
-  const eligible = shown.filter((c) => !c.guest);
+  const todayKey = new Date().toDateString();
+  const eligible = shown.filter(
+    (c) => !c.guest && new Date(c.ts).toDateString() === todayKey
+  );
   if (eligible.length >= 2 && new Set(eligible.map((c) => c.player)).size === 1) {
     multiCandidate = {
       name: eligible[0].player,
       id: eligible[0].playerId ?? present.find((p) => p.name === eligible[0].player)?.id ?? null,
       clips: eligible,
     };
+  }
+
+  // Klipplistan med datumrubriker insprängda när det finns flera dagar
+  const listData = [];
+  {
+    let lastKey = null;
+    const multiDay = new Set(shown.map((c) => new Date(c.ts).toDateString())).size > 1;
+    for (const c of shown) {
+      const key = new Date(c.ts).toDateString();
+      if (multiDay && key !== lastKey) {
+        listData.push({ isHeader: true, key: `h-${key}`, label: dayLabel(c.ts) });
+        lastKey = key;
+      }
+      listData.push(c);
+    }
   }
 
   const startMultiReview = () => {
@@ -108,15 +127,15 @@ export default function ReviewTab({ group, session, onOpenReview }) {
       {selected && <Player key={selected.uri} clip={selected} />}
 
       <FlatList
-        data={shown}
-        keyExtractor={(c) => c.file}
+        data={listData}
+        keyExtractor={(c) => (c.isHeader ? c.key : c.file)}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
         ListHeaderComponent={
           <>
             {multiCandidate && (
               <Pressable onPress={startMultiReview} style={s.multiRecordBtn}>
                 <Text style={s.multiRecordBtnText}>
-                  🎙 Genomgång på alla {multiCandidate.name}s klipp ({multiCandidate.clips.length})
+                  🎙 Genomgång på {multiCandidate.name}s klipp idag ({multiCandidate.clips.length})
                 </Text>
                 <Text style={s.multiRecordBtnSub}>
                   Klippen spelas i tur och ordning – prata, pausa och rita rakt igenom
@@ -154,17 +173,21 @@ export default function ReviewTab({ group, session, onOpenReview }) {
             sorterade per spelare.
           </Text>
         }
-        renderItem={({ item }) => (
-          <ClipCard
-            clip={item}
-            isSelected={selected?.file === item.file}
-            onPlay={() => setSelected(selected?.file === item.file ? null : item)}
-            onDelete={() => confirmDelete(item)}
-            present={present}
-            onReassigned={refresh}
-            onOpenReview={onOpenReview}
-          />
-        )}
+        renderItem={({ item }) =>
+          item.isHeader ? (
+            <Text style={s.dateHeader}>{item.label}</Text>
+          ) : (
+            <ClipCard
+              clip={item}
+              isSelected={selected?.file === item.file}
+              onPlay={() => setSelected(selected?.file === item.file ? null : item)}
+              onDelete={() => confirmDelete(item)}
+              present={present}
+              onReassigned={refresh}
+              onOpenReview={onOpenReview}
+            />
+          )
+        }
       />
     </View>
   );
@@ -298,6 +321,15 @@ const fmtDur = (ms) => {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 };
 
+function dayLabel(ts) {
+  const d = new Date(ts);
+  const today = new Date();
+  const yesterday = new Date(today.getTime() - 86400000);
+  if (d.toDateString() === today.toDateString()) return "Idag";
+  if (d.toDateString() === yesterday.toDateString()) return "Igår";
+  return d.toLocaleDateString("sv-SE", { day: "numeric", month: "long" });
+}
+
 const s = StyleSheet.create({
   filterRow: { gap: 8, paddingHorizontal: 16, paddingBottom: 12 },
   empty: {
@@ -400,6 +432,15 @@ const s = StyleSheet.create({
   multiCardTitle: { color: T.green, fontFamily: F.cond700, fontSize: 18 },
   multiCardMeta: { color: "#7FBF9E", fontFamily: F.body, fontSize: 12.5, marginTop: 1 },
   multiCardPlay: { color: T.green, fontSize: 16, padding: 4 },
+  dateHeader: {
+    color: T.mut,
+    fontFamily: F.cond700,
+    fontSize: 14,
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    marginTop: 10,
+    marginBottom: 8,
+  },
   playIcon: { color: T.accent, fontSize: 16, alignSelf: "center", padding: 4 },
   playerWrap: {
     marginHorizontal: 16,

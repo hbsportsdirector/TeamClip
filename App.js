@@ -93,7 +93,17 @@ function Root() {
         player={route.player}
         moment={session.moment}
         group={group}
-        onDone={() => setRoute({ name: "group" })}
+        onDone={(savedClip) =>
+          // Spec:ens Läge 1: direkt efter klippet erbjuds feedback – här som
+          // en full genomgång i stället för enbart röstmemo
+          savedClip
+            ? setRoute({
+                name: "review",
+                payload: { kind: "single", clip: savedClip, afterSpont: true },
+                mode: "record",
+              })
+            : setRoute({ name: "group" })
+        }
       />
     );
   }

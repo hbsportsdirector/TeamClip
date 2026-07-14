@@ -50,10 +50,10 @@ export default function SpontRecordScreen({ player, moment, group, onDone }) {
     recordingRef.current = false;
     const durationMs = Date.now() - startRef.current;
 
-    let saved = false;
+    let saved = null;
     if (video?.uri && wantSaveRef.current) {
       try {
-        await saveClip(video.uri, {
+        saved = await saveClip(video.uri, {
           player: player.name,
           playerId: player.rid,
           groupId: group.id,
@@ -62,7 +62,6 @@ export default function SpontRecordScreen({ player, moment, group, onDone }) {
           guest: player.guest,
           durationMs,
         });
-        saved = true;
       } catch (e) {
         setError(`Kunde inte spara klipp: ${e?.message ?? e}`);
       }
@@ -88,7 +87,7 @@ export default function SpontRecordScreen({ player, moment, group, onDone }) {
       setTimeout(() => camRef.current?.stopRecording(), 400);
     } else if (!doneRef.current) {
       doneRef.current = true;
-      onDone(false);
+      onDone(null);
     }
   };
 
