@@ -175,6 +175,15 @@ export function archiveClipsBeforeToday() {
   return n;
 }
 
+export function toggleClipFavorite(fileName) {
+  const index = readIndex();
+  const entry = index.find((c) => c.file === fileName);
+  if (!entry) return false;
+  entry.favorite = !entry.favorite;
+  writeIndex(index);
+  return entry.favorite;
+}
+
 // Markerar källfiler som medtagna i en dagssammanställning.
 // field: 'merged' (råklipp) eller 'exportMerged' (genomgångsvideo)
 export function setClipsMerged(fileNames, field = "merged") {

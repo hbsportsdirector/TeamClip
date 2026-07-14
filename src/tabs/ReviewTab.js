@@ -5,12 +5,19 @@ import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
 import { Chip } from "../components/ui";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { listClips, deleteClip, reassignClip, archiveGroupClips } from "../lib/clips";
+import {
+  listClips,
+  deleteClip,
+  reassignClip,
+  archiveGroupClips,
+  toggleClipFavorite,
+} from "../lib/clips";
 import {
   hasReview,
   listMultiReviews,
   deleteMultiReview,
   archiveMultiReviews,
+  toggleMultiReviewFavorite,
 } from "../lib/review";
 import * as uploadQueue from "../lib/uploadQueue";
 import * as exportReview from "../lib/exportReview";
@@ -63,33 +70,39 @@ export default function ReviewTab({ group, session, onOpenReview }) {
     .filter(Boolean);
 
   const hasGuests = clips.some((c) => c.guest);
+  const favoriteClips = allClips.filter((c) => c.favorite);
+  const favoriteMultiReviews = allMultiReviews.filter((mr) => mr.favorite);
   const filters = [
     "Alla",
     ...present.map((p) => p.name),
     ...(hasGuests ? ["Gäster"] : []),
+    ...(favoriteClips.length > 0 || favoriteMultiReviews.length > 0 ? ["⭐ Favoriter"] : []),
     ...(archivedClips.length > 0 || archivedMultiReviews.length > 0 ? ["Arkiv"] : []),
   ];
   const shown =
     filter === "Arkiv"
       ? archivedClips
-      : clips.filter((c) =>
-          filter === "Alla" ? true : filter === "Gäster" ? c.guest : c.player === filter && !c.guest
-        );
+      : filter === "⭐ Favoriter"
+        ? favoriteClips
+        : clips.filter((c) =>
+            filter === "Alla" ? true : filter === "Gäster" ? c.guest : c.player === filter && !c.guest
+          );
 
   const shownMultiReviews =
     filter === "Arkiv"
       ? archivedMultiReviews
-      : multiReviews.filter((mr) => (filter === "Alla" ? true : mr.player === filter));
+      : filter === "⭐ Favoriter"
+        ? favoriteMultiReviews
+        : multiReviews.filter((mr) => (filter === "Alla" ? true : mr.player === filter));
 
   // Erbjud fleklippsgenomgång så fort alla dagens klipp i vyn hör till en
   // och samma spelare – även under "Alla" när bara en spelare har filmats.
   // Bara dagens: en genomgång gäller passet, inte veckor av gamla klipp.
   let multiCandidate = null;
   const todayKey = new Date().toDateString();
-  const eligible =
-    filter === "Arkiv"
-      ? []
-      : shown.filter((c) => !c.guest && new Date(c.ts).toDateString() === todayKey);
+  const eligible = ["Arkiv", "⭐ Favoriter"].includes(filter)
+    ? []
+    : shown.filter((c) => !c.guest && new Date(c.ts).toDateString() === todayKey);
   if (eligible.length >= 2 && new Set(eligible.map((c) => c.player)).size === 1) {
     multiCandidate = {
       name: eligible[0].player,
@@ -129,6 +142,18 @@ export default function ReviewTab({ group, session, onOpenReview }) {
       },
       "record"
     );
+  };
+
+  const toggleFav = (clip) => {
+    toggleClipFavorite(clip.file);
+    refresh();
+    uploadQueue.kick();
+  };
+
+  const toggleFavMr = (mr) => {
+    toggleMultiReviewFavorite(mr.name);
+    refresh();
+    uploadQueue.kick();
   };
 
   const confirmFinishSession = () => {
@@ -230,6 +255,9 @@ export default function ReviewTab({ group, session, onOpenReview }) {
                 </View>
                 <View style={s.sideCol}>
                   <Text style={s.multiCardPlay}>▶</Text>
+                  <Pressable onPress={() => toggleFavMr(mr)} hitSlop={8}>
+                    <Text style={[s.star, !mr.favorite && s.starOff]}>{mr.favorite ? "⭐" : "☆"}</Text>
+                  </Pressable>
                   <Pressable onPress={() => confirmDeleteMulti(mr)} hitSlop={8}>
                     <Text style={s.trash}>🗑</Text>
                   </Pressable>
@@ -266,6 +294,7 @@ export default function ReviewTab({ group, session, onOpenReview }) {
               isSelected={selected?.file === item.file}
               onPlay={() => setSelected(selected?.file === item.file ? null : item)}
               onDelete={() => confirmDelete(item)}
+              onToggleFavorite={() => toggleFav(item)}
               present={present}
               onReassigned={refresh}
               onOpenReview={onOpenReview}
@@ -288,7 +317,17 @@ function safeList(groupId) {
   }
 }
 
-function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, onOpenReview, ask }) {
+function ClipCard({
+  clip,
+  isSelected,
+  onPlay,
+  onDelete,
+  onToggleFavorite,
+  present,
+  onReassigned,
+  onOpenReview,
+  ask,
+}) {
   const [assigning, setAssigning] = useState(false);
   const review = hasReview(clip.file);
 
@@ -385,6 +424,9 @@ function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, o
       </View>
       <View style={s.sideCol}>
         <Text style={s.playIcon}>{isSelected ? "▮▮" : "▶"}</Text>
+        <Pressable onPress={onToggleFavorite} hitSlop={8}>
+          <Text style={[s.star, !clip.favorite && s.starOff]}>{clip.favorite ? "⭐" : "☆"}</Text>
+        </Pressable>
         <Pressable onPress={onDelete} hitSlop={8}>
           <Text style={s.trash}>🗑</Text>
         </Pressable>
@@ -596,6 +638,8 @@ const s = StyleSheet.create({
   playIcon: { color: T.accent, fontSize: 16, padding: 4 },
   sideCol: { justifyContent: "space-between", alignItems: "center", paddingVertical: 2 },
   trash: { fontSize: 13, opacity: 0.55, padding: 4 },
+  star: { fontSize: 15, padding: 3 },
+  starOff: { opacity: 0.45, color: T.mut },
   playerWrap: {
     marginHorizontal: 16,
     marginBottom: 12,

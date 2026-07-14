@@ -84,6 +84,24 @@ export function renameReviewFiles(oldClipFile, newClipFile) {
 // bär sin egen klippinfo (fil, spelare, moment) så den är självförsörjande.
 const MULTI_SUFFIX = ".multireview.json";
 
+// Vanligaste momentet bland genomgångens klipp – styr mappen i Drive
+function dominantMoment(clips) {
+  const counts = new Map();
+  for (const c of clips ?? []) {
+    if (!c.moment) continue;
+    counts.set(c.moment, (counts.get(c.moment) ?? 0) + 1);
+  }
+  let best = "Traning";
+  let bestN = 0;
+  for (const [m, n] of counts) {
+    if (n > bestN) {
+      best = m;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
 const sanitizeName = (s) =>
   s
     .trim()
@@ -120,11 +138,13 @@ export function listMultiReviews(groupId, { includeArchived = false } = {}) {
           playerId: meta.playerId ?? null,
           groupId: meta.groupId ?? null,
           group: meta.group ?? "",
+          moment: dominantMoment(meta.clips),
           clipCount: meta.clips?.length ?? 0,
           durationMs: meta.durationMs ?? 0,
           createdAt: meta.createdAt ?? 0,
           archived: !!meta.archived,
           merged: !!meta.merged,
+          favorite: !!meta.favorite,
         });
       } catch {}
     }
@@ -170,6 +190,20 @@ export function archiveMultiReviewsBeforeToday() {
     }
   } catch (e) {
     console.warn("Kunde inte arkivera genomgångar:", e);
+  }
+}
+
+export function toggleMultiReviewFavorite(name) {
+  try {
+    const f = new File(clipsDir(), name);
+    if (!f.exists) return false;
+    const meta = JSON.parse(f.textSync());
+    meta.favorite = !meta.favorite;
+    f.write(JSON.stringify(meta));
+    return !!meta.favorite;
+  } catch (e) {
+    console.warn("Kunde inte favoritmarkera genomgång:", e);
+    return false;
   }
 }
 

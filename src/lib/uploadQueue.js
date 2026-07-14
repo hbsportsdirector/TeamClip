@@ -1,6 +1,9 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { loadJSON, saveJSON } from "./persist";
 import { listMerges } from "./dailyMerge";
+import { listClips } from "./clips";
+import { listMultiReviews } from "./review";
+import { exportVideoName, multiExportVideoName } from "./exportReview";
 import * as googleAuth from "./googleAuth";
 import { ensureFolderPath, shareFolderOnce, uploadFile } from "./drive";
 
@@ -57,15 +60,19 @@ const fileExists = (name) => {
   }
 };
 
-// Arbetslistan = dagssammanställningarna (byggs av dailyMerge vid "Passet
-// klart"). Två filer per spelare och dag – klipp + genomgång – i datummappar
-// (TeamClip/Spelare/<Namn>/<ÅÅÅÅ-MM-DD>/); delningen ligger på spelarmappen
-// så spelaren ser alla datum. Enskilda filer laddas inte upp längre.
+// Arbetslistan: dagssammanställningarna (byggs av dailyMerge vid "Passet
+// klart") + favoritkopior. Mappstruktur per spelare:
+//   TeamClip/Spelare/<Namn>/<Moment>/<ÅÅÅÅ-MM-DD>/  – dagens filer
+//   TeamClip/Spelare/<Namn>/<Moment>/Favoriter/     – stjärnmärkta kopior
+// Delningen ligger på spelarmappen så spelaren ser allt.
 function pendingWork() {
   const u = getUploads();
   const registry = loadJSON("appstate.json", { registry: [] }).registry;
   const emailOf = (playerId) => registry.find((r) => r.id === playerId)?.email ?? "";
   const work = [];
+
+  const playerBase = (player, moment) => ["TeamClip", "Spelare", player, moment || "Traning"];
+  const guestBase = (group, moment) => ["TeamClip", group || "Grupp", "Gäster", moment || "Traning"];
 
   for (const m of listMerges()) {
     if (!fileExists(m.file)) continue;
@@ -74,13 +81,47 @@ function pendingWork() {
     const st = u[m.file];
     if (st?.status === "done" && (st.at ?? 0) >= (m.createdAt ?? 0)) continue;
     const target = m.guest
-      ? { folder: ["TeamClip", m.group || "Grupp", "Gäster", m.day] }
+      ? { folder: [...guestBase(m.group, m.moment), m.day] }
       : {
-          folder: ["TeamClip", "Spelare", m.player, m.day],
+          folder: [...playerBase(m.player, m.moment), m.day],
           sharePath: ["TeamClip", "Spelare", m.player],
           shareWith: emailOf(m.playerId),
         };
     work.push({ file: m.file, driveName: m.driveName, mime: "video/mp4", ...target });
+  }
+
+  // Favoriter: enskilda kopior, laddas upp direkt (väntar inte på passet)
+  for (const c of listClips(undefined, { includeArchived: true })) {
+    if (!c.favorite) continue;
+    const target = c.guest
+      ? { folder: [...guestBase(c.group, c.moment), "Favoriter"] }
+      : {
+          folder: [...playerBase(c.player, c.moment), "Favoriter"],
+          sharePath: ["TeamClip", "Spelare", c.player],
+          shareWith: emailOf(c.playerId),
+        };
+    if (u[c.file]?.status !== "done") {
+      work.push({ file: c.file, mime: "video/mp4", ...target });
+    }
+    const exp = exportVideoName(c.file);
+    if (fileExists(exp) && u[exp]?.status !== "done") {
+      work.push({ file: exp, mime: "video/mp4", ...target });
+    }
+  }
+  for (const mr of listMultiReviews(undefined, { includeArchived: true })) {
+    if (!mr.favorite) continue;
+    const video = multiExportVideoName(mr.name);
+    if (!fileExists(video) || u[video]?.status === "done") continue;
+    const d = new Date(mr.createdAt || Date.now());
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    work.push({
+      file: video,
+      driveName: `${day}_Genomgang_${mr.player}.mp4`,
+      mime: "video/mp4",
+      folder: [...playerBase(mr.player, mr.moment), "Favoriter"],
+      sharePath: ["TeamClip", "Spelare", mr.player],
+      shareWith: emailOf(mr.playerId),
+    });
   }
 
   return work;

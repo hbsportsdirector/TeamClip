@@ -143,11 +143,11 @@ async function doProcess(ffmpeg) {
 
   const all = listClips(undefined, { includeArchived: true });
 
-  // — Råklipp: gruppera per (grupp, spelare/gäst, dag) —
+  // — Råklipp: gruppera per (grupp, spelare/gäst, moment, dag) —
   const clipGroups = new Map();
   for (const c of all) {
     if (!c.archived || c.merged) continue;
-    const key = `${c.groupId}|${c.guest ? "g:" + c.player : c.playerId ?? c.player}|${dayOf(c.ts)}`;
+    const key = `${c.groupId}|${c.guest ? "g:" + c.player : c.playerId ?? c.player}|${c.moment}|${dayOf(c.ts)}`;
     if (!clipGroups.has(key)) clipGroups.set(key, []);
     clipGroups.get(key).push(c);
   }
@@ -168,6 +168,7 @@ async function doProcess(ffmpeg) {
         playerId: first.playerId ?? null,
         groupId: first.groupId,
         group: first.group,
+        moment: first.moment || "Traning",
         guest: !!first.guest,
         day,
         sources,
@@ -181,14 +182,15 @@ async function doProcess(ffmpeg) {
     notify();
   }
 
-  // — Genomgångsvideor: enklipps-exporter + fleklippsvideor per (grupp, spelare, dag) —
+  // — Genomgångsvideor: enklipps-exporter + fleklippsvideor per
+  //   (grupp, spelare, moment, dag) —
   const reviewGroups = new Map();
   for (const c of all) {
     if (!c.archived || c.exportMerged || c.guest) continue;
     if (!hasReview(c.file)) continue;
     const exp = exportVideoName(c.file);
     if (!fileIn(exp).exists) continue; // exporten inte klar än – tas nästa varv
-    const key = `${c.groupId}|${c.playerId ?? c.player}|${dayOf(c.ts)}`;
+    const key = `${c.groupId}|${c.playerId ?? c.player}|${c.moment}|${dayOf(c.ts)}`;
     if (!reviewGroups.has(key)) reviewGroups.set(key, { meta: c, singles: [], multis: [] });
     reviewGroups.get(key).singles.push({ ts: c.ts, file: exp, clipFile: c.file });
   }
@@ -196,10 +198,17 @@ async function doProcess(ffmpeg) {
     if (!mr.archived || mr.merged) continue;
     const video = multiExportVideoName(mr.name);
     if (!fileIn(video).exists) continue;
-    const key = `${mr.groupId}|${mr.playerId ?? mr.player}|${dayOf(mr.createdAt)}`;
+    const key = `${mr.groupId}|${mr.playerId ?? mr.player}|${mr.moment}|${dayOf(mr.createdAt)}`;
     if (!reviewGroups.has(key)) {
       reviewGroups.set(key, {
-        meta: { group: mr.group, groupId: mr.groupId, player: mr.player, playerId: mr.playerId, ts: mr.createdAt },
+        meta: {
+          group: mr.group,
+          groupId: mr.groupId,
+          player: mr.player,
+          playerId: mr.playerId,
+          moment: mr.moment,
+          ts: mr.createdAt,
+        },
         singles: [],
         multis: [],
       });
@@ -222,6 +231,7 @@ async function doProcess(ffmpeg) {
         playerId: g.meta.playerId ?? null,
         groupId: g.meta.groupId,
         group: g.meta.group,
+        moment: g.meta.moment || "Traning",
         guest: false,
         day,
         sources: items.map((i) => i.file),
