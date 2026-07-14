@@ -26,4 +26,9 @@ Obs: expo-status-bar får INTE stå i plugins-listan i app.json på SDK 54.)
   "»"-knapp för manuellt byte). Sparas som `<bas>.m4a` + `<bas>.multireview.json` med egen
   klippinfo; 'clip'-händelser i loggen byter videokälla. Startas från spelarfiltret i Granska.
   OBS: 'clip'-index pekar på positioner i ursprungslistan – borttagna klipp blir null-platser.
+- Steg 3 (Drive) BLOCKERAS av Expo Go: Google-inloggning kräver native-moduler
+  (https://docs.expo.dev/guides/google-authentication/ – "can't be used in Expo Go").
+  Vägen framåt är en development build via EAS, vilket samtidigt låser upp ffmpeg-kit
+  (inbrända exportgenomgångar) och react-native-vision-camera (äkta klippöverlapp).
+  Utrett 2026-07-14; beslut om bytet ligger hos användaren.
 - Testas i Expo Go (`npx expo start`), därför inga bibliotek med egna native-moduler utanför Expo SDK.
