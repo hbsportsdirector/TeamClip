@@ -148,24 +148,41 @@ export function buildAss(log) {
     };
   };
 
+  // Strecket byggs som en sluten, fylld bandpolygon (linjen förskjuten åt
+  // båda hållen) – öppna banor med kantlinje renderas inte tillförlitligt
+  const ribbonPath = (pts, halfW) => {
+    const left = [];
+    const right = [];
+    for (let i = 0; i < pts.length; i++) {
+      const prev = pts[Math.max(0, i - 1)];
+      const next = pts[Math.min(pts.length - 1, i + 1)];
+      let dx = next.x - prev.x;
+      let dy = next.y - prev.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      left.push({ x: pts[i].x + nx * halfW, y: pts[i].y + ny * halfW });
+      right.push({ x: pts[i].x - nx * halfW, y: pts[i].y - ny * halfW });
+    }
+    const ring = [...left, ...right.reverse()];
+    return ring
+      .map((p, i) => `${i === 0 ? "m" : "l"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+      .join(" ");
+  };
+
   const lines = [];
   for (const st of strokes) {
-    const pts = st.points ?? [];
-    if (pts.length < 2) continue;
-    const visibleFrom = pts[pts.length - 1].t ?? st.t; // syns när strecket är färdigritat
+    const raw = st.points ?? [];
+    if (raw.length < 2) continue;
+    const visibleFrom = raw[raw.length - 1].t ?? st.t; // syns när strecket är färdigritat
     const cut = cuts.find((c) => c > st.t);
     const visibleTo = Math.min(cut ?? total, total);
     if (visibleTo - visibleFrom < 80) continue;
-    const path = pts
-      .map((p, i) => {
-        const m = mapPoint(p);
-        return `${i === 0 ? "m" : "l"} ${m.x.toFixed(1)} ${m.y.toFixed(1)}`;
-      })
-      .join(" ");
-    // knep: tom fyllnad (\1a&HFF&) + kantlinje (\bord) = strykt polylinje
+    const mapped = raw.map(mapPoint);
+    const path = ribbonPath(mapped, 5);
     lines.push(
       `Dialogue: 0,${assTime(visibleFrom)},${assTime(visibleTo)},TC,,0,0,0,,` +
-        `{\\an7\\pos(0,0)\\bord5\\shad0\\1a&HFF&\\3c&H605AFF&\\p1}${path}{\\p0}`
+        `{\\an7\\pos(0,0)\\bord0\\shad0\\1c&H605AFF&\\1a&H00&\\p1}${path}{\\p0}`
     );
   }
   if (lines.length === 0) return null;
