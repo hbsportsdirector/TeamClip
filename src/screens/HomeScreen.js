@@ -274,17 +274,9 @@ function PlayersView() {
                   )}
                 </View>
                 <Text style={[s.expandLabel, { marginTop: 12 }]}>
-                  E-post (spelare eller vårdnadshavare – används för Drive-delningen i steg 3):
+                  E-post (spelare eller vårdnadshavare – spelarens Drive-mapp delas hit):
                 </Text>
-                <TextInput
-                  defaultValue={p.email}
-                  onEndEditing={(e) => setPlayerEmail(p.id, e.nativeEvent.text.trim())}
-                  placeholder="namn@exempel.se"
-                  placeholderTextColor={T.dim}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  style={[u.input, { flex: 0 }]}
-                />
+                <EmailField player={p} onSave={(email) => setPlayerEmail(p.id, email)} />
               </View>
             )}
           </View>
@@ -308,6 +300,76 @@ function PlayersView() {
         spelar i. Tips: använd efternamnsinitial om två spelare heter lika.
       </Text>
     </>
+  );
+}
+
+function EmailField({ player, onSave }) {
+  const [editing, setEditing] = useState(!player.email);
+  const [value, setValue] = useState(player.email ?? "");
+  const [justSaved, setJustSaved] = useState(false);
+  const [invalid, setInvalid] = useState(false);
+
+  const save = () => {
+    const email = value.trim();
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    onSave(email);
+    if (email) {
+      setEditing(false);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2500);
+    }
+  };
+
+  if (!editing && player.email) {
+    return (
+      <View style={s.emailLocked}>
+        <Text style={s.emailLockedCheck}>✓</Text>
+        <Text style={s.emailLockedText} numberOfLines={1}>
+          {player.email}
+        </Text>
+        {justSaved && <Text style={s.emailSavedNote}>Sparad</Text>}
+        <Pressable
+          onPress={() => {
+            setValue(player.email);
+            setEditing(true);
+          }}
+          hitSlop={8}
+        >
+          <Text style={s.emailEditText}>Ändra</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <TextInput
+          value={value}
+          onChangeText={(t) => {
+            setValue(t);
+            setInvalid(false);
+          }}
+          onSubmitEditing={save}
+          placeholder="namn@exempel.se"
+          placeholderTextColor={T.dim}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
+          style={[u.input, invalid && { borderColor: T.rec }]}
+        />
+        <Pressable onPress={save} style={s.emailSaveBtn}>
+          <Text style={s.emailSaveBtnText}>Spara</Text>
+        </Pressable>
+      </View>
+      {invalid && (
+        <Text style={s.emailInvalid}>Det där ser inte ut som en e-postadress – kolla stavningen.</Text>
+      )}
+    </View>
   );
 }
 
@@ -415,4 +477,25 @@ const s = StyleSheet.create({
   groupTagText: { color: T.mut, fontFamily: F.body600, fontSize: 11.5 },
   expandLabel: { color: T.dim, fontFamily: F.body, fontSize: 12.5, marginBottom: 8 },
   addRow: { flexDirection: "row", gap: 8, marginTop: 14 },
+  emailLocked: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: T.court,
+    borderRadius: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+  },
+  emailLockedCheck: { color: T.green, fontSize: 14 },
+  emailLockedText: { flex: 1, color: T.line, fontFamily: F.body, fontSize: 14 },
+  emailSavedNote: { color: T.green, fontFamily: F.body600, fontSize: 12 },
+  emailEditText: { color: T.mut, fontFamily: F.body600, fontSize: 13, padding: 2 },
+  emailSaveBtn: {
+    backgroundColor: T.courtLite,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+  },
+  emailSaveBtnText: { color: T.accent, fontFamily: F.body600, fontSize: 14 },
+  emailInvalid: { color: T.rec, fontFamily: F.body, fontSize: 12.5, marginTop: 6 },
 });
