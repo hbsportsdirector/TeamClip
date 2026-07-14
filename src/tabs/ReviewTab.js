@@ -5,15 +5,19 @@ import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
 import { Chip } from "../components/ui";
 import { listClips, deleteClip, reassignClip } from "../lib/clips";
-import { hasReview } from "../lib/review";
+import { hasReview, listMultiReviews, deleteMultiReview } from "../lib/review";
 
 export default function ReviewTab({ group, session, onOpenReview }) {
   const { registry } = useApp();
   const [clips, setClips] = useState(() => safeList(group.id));
+  const [multiReviews, setMultiReviews] = useState(() => listMultiReviews(group.id));
   const [filter, setFilter] = useState("Alla");
   const [selected, setSelected] = useState(null);
 
-  const refresh = useCallback(() => setClips(safeList(group.id)), [group.id]);
+  const refresh = useCallback(() => {
+    setClips(safeList(group.id));
+    setMultiReviews(listMultiReviews(group.id));
+  }, [group.id]);
 
   const present = session.presentIds
     .map((id) => registry.find((r) => r.id === id))
@@ -24,6 +28,44 @@ export default function ReviewTab({ group, session, onOpenReview }) {
   const shown = clips.filter((c) =>
     filter === "Alla" ? true : filter === "Gäster" ? c.guest : c.player === filter && !c.guest
   );
+
+  const filterPlayer =
+    filter !== "Alla" && filter !== "Gäster" ? present.find((p) => p.name === filter) : null;
+  const shownMultiReviews = multiReviews.filter((mr) =>
+    filter === "Alla" ? true : mr.player === filter
+  );
+
+  const startMultiReview = () => {
+    // Klippen i skjutordning (äldst först) så genomgången följer passet
+    const playlistClips = [...shown].sort((a, b) => a.ts - b.ts);
+    onOpenReview(
+      {
+        kind: "multiRecord",
+        clips: playlistClips,
+        meta: {
+          player: filterPlayer.name,
+          playerId: filterPlayer.id,
+          groupId: group.id,
+          group: group.name,
+        },
+      },
+      "record"
+    );
+  };
+
+  const confirmDeleteMulti = (mr) => {
+    Alert.alert("Ta bort genomgång?", `${mr.player} · ${mr.clipCount} klipp`, [
+      { text: "Avbryt", style: "cancel" },
+      {
+        text: "Ta bort",
+        style: "destructive",
+        onPress: () => {
+          deleteMultiReview(mr.name);
+          refresh();
+        },
+      },
+    ]);
+  };
 
   const confirmDelete = (clip) => {
     Alert.alert("Ta bort klipp?", `${clip.player} · ${clip.moment}`, [
@@ -59,6 +101,43 @@ export default function ReviewTab({ group, session, onOpenReview }) {
         data={shown}
         keyExtractor={(c) => c.file}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+        ListHeaderComponent={
+          <>
+            {filterPlayer && shown.length >= 2 && (
+              <Pressable onPress={startMultiReview} style={s.multiRecordBtn}>
+                <Text style={s.multiRecordBtnText}>
+                  🎙 Genomgång på alla {filterPlayer.name}s klipp ({shown.length})
+                </Text>
+                <Text style={s.multiRecordBtnSub}>
+                  Klippen spelas i tur och ordning – prata, pausa och rita rakt igenom
+                </Text>
+              </Pressable>
+            )}
+            {shownMultiReviews.map((mr) => (
+              <Pressable
+                key={mr.name}
+                onPress={() => onOpenReview({ kind: "multiPlay", name: mr.name }, "play")}
+                onLongPress={() => confirmDeleteMulti(mr)}
+                style={s.multiCard}
+              >
+                <View style={s.multiBadge}>
+                  <Text style={s.multiBadgeText}>🎙</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.multiCardTitle}>Genomgång · {mr.player}</Text>
+                  <Text style={s.multiCardMeta}>
+                    {mr.clipCount} klipp · {fmtDur(mr.durationMs)} ·{" "}
+                    {new Date(mr.createdAt).toLocaleTimeString("sv-SE", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </Text>
+                </View>
+                <Text style={s.multiCardPlay}>▶</Text>
+              </Pressable>
+            ))}
+          </>
+        }
         ListEmptyComponent={
           <Text style={s.empty}>
             Inga klipp än.{"\n"}Gå till Filma och fånga ett skott – klippen dyker upp här,
@@ -102,7 +181,11 @@ function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, o
   const confirmRedo = () => {
     Alert.alert("Gör om genomgången?", "Den gamla genomgången ersätts.", [
       { text: "Avbryt", style: "cancel" },
-      { text: "Gör om", style: "destructive", onPress: () => onOpenReview(clip, "record") },
+      {
+        text: "Gör om",
+        style: "destructive",
+        onPress: () => onOpenReview({ kind: "single", clip }, "record"),
+      },
     ]);
   };
 
@@ -157,7 +240,10 @@ function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, o
         <View style={s.reviewRow}>
           {review ? (
             <>
-              <Pressable onPress={() => onOpenReview(clip, "play")} style={s.reviewBtn}>
+              <Pressable
+                onPress={() => onOpenReview({ kind: "single", clip }, "play")}
+                style={s.reviewBtn}
+              >
                 <Text style={s.reviewBtnText}>▶ Genomgång</Text>
               </Pressable>
               <Pressable onPress={confirmRedo} style={s.reviewBtnGhost}>
@@ -165,7 +251,10 @@ function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, o
               </Pressable>
             </>
           ) : (
-            <Pressable onPress={() => onOpenReview(clip, "record")} style={s.reviewBtnGhost}>
+            <Pressable
+              onPress={() => onOpenReview({ kind: "single", clip }, "record")}
+              style={s.reviewBtnGhost}
+            >
               <Text style={s.reviewBtnGhostText}>🎙 Spela in genomgång</Text>
             </Pressable>
           )}
@@ -271,6 +360,36 @@ const s = StyleSheet.create({
     paddingHorizontal: 13,
   },
   reviewBtnGhostText: { color: T.accent, fontFamily: F.body600, fontSize: 13 },
+  multiRecordBtn: {
+    backgroundColor: T.accent,
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  multiRecordBtnText: { color: "#fff", fontFamily: F.cond700, fontSize: 17, letterSpacing: 0.5 },
+  multiRecordBtnSub: { color: "rgba(255,255,255,0.8)", fontFamily: F.body, fontSize: 12, marginTop: 2 },
+  multiCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#123524",
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
+  },
+  multiBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  multiBadgeText: { fontSize: 18 },
+  multiCardTitle: { color: T.green, fontFamily: F.cond700, fontSize: 18 },
+  multiCardMeta: { color: "#7FBF9E", fontFamily: F.body, fontSize: 12.5, marginTop: 1 },
+  multiCardPlay: { color: T.green, fontSize: 16, padding: 4 },
   playIcon: { color: T.accent, fontSize: 16, alignSelf: "center", padding: 4 },
   playerWrap: {
     marginHorizontal: 16,

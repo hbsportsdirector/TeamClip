@@ -102,7 +102,7 @@ function Root() {
     <SafeAreaView style={s.safe}>
       {route.name === "review" && group ? (
         <ReviewSessionScreen
-          clip={route.clip}
+          payload={route.payload}
           mode={route.mode}
           onClose={() => setRoute({ name: "group" })}
         />
@@ -114,7 +114,7 @@ function Root() {
           onBack={closeGroup}
           onStartSpont={(player) => setRoute({ name: "spont", player })}
           onStartQueue={() => setRoute({ name: "queue" })}
-          onOpenReview={(clip, mode) => setRoute({ name: "review", clip, mode })}
+          onOpenReview={(payload, mode) => setRoute({ name: "review", payload, mode })}
           clipCount={clipCountForGroup(group.id)}
         />
       ) : (

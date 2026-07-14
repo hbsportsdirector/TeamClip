@@ -13,25 +13,101 @@ import { useEvent } from "expo";
 import { useKeepAwake } from "expo-keep-awake";
 import Svg, { Polyline, Circle } from "react-native-svg";
 import { T, F } from "../theme";
-import { loadReview, saveReview } from "../lib/review";
+import { loadReview, saveReview, saveMultiReview, loadMultiReview } from "../lib/review";
 
-// Genomgång: tränaren pratar över klippet, pausar fritt och ritar med
-// fingret. Ljudet är den obrutna tidslinjen; video-play/pause/seek och
-// ritstreck loggas med tidsstämplar relativt ljudstarten och spelas upp
-// synkat igen. Videons eget ljud är avstängt hela tiden – tränarrösten
-// är ljudspåret.
-export default function ReviewSessionScreen({ clip, mode, onClose }) {
+// Genomgång: tränaren pratar över ett eller flera klipp i följd, pausar
+// fritt och ritar med fingret. Ljudet är den obrutna tidslinjen; video-
+// händelser (play/pause/seek/klippbyte/sudda) och ritstreck loggas med
+// tidsstämplar relativt ljudstarten och spelas upp synkat igen. Videons
+// eget ljud är avstängt hela tiden – tränarrösten är ljudspåret.
+//
+// payload:
+//   { kind: "single", clip }                 – ett klipp (spara per klippbas)
+//   { kind: "multiRecord", clips, meta }     – spela in över flera klipp
+//   { kind: "multiPlay", name }              – spela upp fleklippsgenomgång
+export default function ReviewSessionScreen({ payload, mode, onClose }) {
   useKeepAwake();
-  return mode === "record" ? (
-    <RecordSession clip={clip} onClose={onClose} />
-  ) : (
-    <PlaySession clip={clip} onClose={onClose} />
+
+  if (mode === "record") {
+    const playlist = payload.kind === "single" ? [payload.clip] : payload.clips;
+    const title =
+      payload.kind === "single"
+        ? `${payload.clip.player} · ${payload.clip.moment}`
+        : `${payload.meta.player} · ${playlist.length} klipp`;
+    const onSave = async (audioUri, log) => {
+      if (payload.kind === "single") {
+        await saveReview(payload.clip.file, audioUri, log);
+      } else {
+        await saveMultiReview(
+          {
+            version: 1,
+            kind: "multi",
+            player: payload.meta.player,
+            playerId: payload.meta.playerId ?? null,
+            groupId: payload.meta.groupId,
+            group: payload.meta.group,
+            createdAt: Date.now(),
+            clips: playlist.map((c) => ({ file: c.file, player: c.player, moment: c.moment })),
+          },
+          audioUri,
+          log
+        );
+      }
+    };
+    return <RecordSession playlist={playlist} title={title} onSave={onSave} onClose={onClose} />;
+  }
+
+  return <PlayWrapper payload={payload} onClose={onClose} />;
+}
+
+function PlayWrapper({ payload, onClose }) {
+  const data = useMemo(() => {
+    if (payload.kind === "single") {
+      const review = loadReview(payload.clip.file);
+      return review
+        ? {
+            playlist: [payload.clip],
+            review,
+            title: `${payload.clip.player} · ${payload.clip.moment}`,
+          }
+        : null;
+    }
+    const loaded = loadMultiReview(payload.name);
+    return loaded
+      ? {
+          playlist: loaded.clips,
+          review: { audioUri: loaded.audioUri, log: loaded.meta },
+          title: `${loaded.meta.player} · ${loaded.clips.length} klipp`,
+        }
+      : null;
+  }, [payload]);
+
+  if (!data) {
+    return (
+      <View style={[s.root, { justifyContent: "center", alignItems: "center", padding: 30 }]}>
+        <Text style={s.error}>Genomgången kunde inte läsas – klippen kan ha tagits bort.</Text>
+        <Pressable onPress={() => onClose(false)} style={[s.bigBtn, { marginTop: 20 }]}>
+          <Text style={s.bigBtnText}>STÄNG</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  return (
+    <PlaySession
+      playlist={data.playlist}
+      review={data.review}
+      title={data.title}
+      onClose={onClose}
+    />
   );
 }
 
+const swapSource = (video, uri) =>
+  video.replaceAsync ? video.replaceAsync(uri) : Promise.resolve(video.replace(uri));
+
 // ——— Inspelning ————————————————————————————————
-function RecordSession({ clip, onClose }) {
-  const video = useVideoPlayer(clip.uri, (p) => {
+function RecordSession({ playlist, title, onSave, onClose }) {
+  const video = useVideoPlayer(playlist[0].uri, (p) => {
     p.muted = true;
     p.loop = false;
   });
@@ -40,6 +116,7 @@ function RecordSession({ clip, onClose }) {
 
   const [phase, setPhase] = useState("idle"); // idle | recording | saving
   const [elapsed, setElapsed] = useState(0);
+  const [clipIdx, setClipIdx] = useState(0);
   const [strokes, setStrokes] = useState([]);
   const [error, setError] = useState(null);
 
@@ -47,9 +124,13 @@ function RecordSession({ clip, onClose }) {
   const eventsRef = useRef([]);
   const strokesRef = useRef([]);
   const phaseRef = useRef("idle");
-  const prevPlayingRef = useRef(false);
+  const loggedPlayingRef = useRef(false);
+  const clipIdxRef = useRef(0);
+  const busyRef = useRef(false);
 
   const now = () => Date.now() - t0Ref.current;
+  const log = (ev) => eventsRef.current.push(ev);
+  const isMulti = playlist.length > 1;
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -58,17 +139,23 @@ function RecordSession({ clip, onClose }) {
     return () => clearInterval(t);
   }, []);
 
-  // Alla play/pause-övergångar loggas här – även när klippet tar slut av
-  // sig självt – så att uppspelningen speglar exakt vad tränaren såg.
+  // Fångar övergångar som inte kommer från knapparna – i praktiken att
+  // klippet spelats till slut. Manuella handlingar loggar själva och
+  // uppdaterar loggedPlayingRef först, så de hoppar över det här.
   useEffect(() => {
-    if (phaseRef.current === "recording" && prevPlayingRef.current !== isPlaying) {
-      eventsRef.current.push({
-        t: now(),
-        type: isPlaying ? "play" : "pause",
-        videoTime: Math.round(video.currentTime * 1000),
-      });
+    if (phaseRef.current !== "recording") return;
+    if (isPlaying === loggedPlayingRef.current) return;
+    if (isPlaying) {
+      loggedPlayingRef.current = true;
+      log({ t: now(), type: "play", videoTime: Math.round(video.currentTime * 1000) });
+    } else {
+      loggedPlayingRef.current = false;
+      log({ t: now(), type: "pause", videoTime: Math.round(video.currentTime * 1000) });
+      const ended = video.duration > 0 && video.currentTime >= video.duration - 0.15;
+      if (ended && isMulti && clipIdxRef.current < playlist.length - 1) {
+        advance(clipIdxRef.current + 1);
+      }
     }
-    prevPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
   useEffect(() => {
@@ -96,35 +183,74 @@ function RecordSession({ clip, onClose }) {
       phaseRef.current = "recording";
       setPhase("recording");
       video.currentTime = 0;
+      loggedPlayingRef.current = true;
+      log({ t: 0, type: "play", videoTime: 0 });
       video.play();
     } catch (e) {
       setError(`Kunde inte starta inspelningen: ${e?.message ?? e}`);
     }
   };
 
+  const advance = async (next) => {
+    if (busyRef.current || next >= playlist.length) return;
+    busyRef.current = true;
+    try {
+      if (loggedPlayingRef.current) {
+        loggedPlayingRef.current = false;
+        log({ t: now(), type: "pause", videoTime: Math.round(video.currentTime * 1000) });
+        video.pause();
+      }
+      log({ t: now(), type: "clip", index: next });
+      clipIdxRef.current = next;
+      setClipIdx(next);
+      setStrokes([]); // vid uppspelning suddar klippbytet automatiskt
+      await swapSource(video, playlist[next].uri);
+      loggedPlayingRef.current = true;
+      log({ t: now(), type: "play", videoTime: 0 });
+      video.play();
+    } catch (e) {
+      setError(`Kunde inte byta klipp: ${e?.message ?? e}`);
+    } finally {
+      busyRef.current = false;
+    }
+  };
+
   const toggleVideo = () => {
-    if (phaseRef.current !== "recording") return;
+    if (phaseRef.current !== "recording" || busyRef.current) return;
     if (isPlaying) {
+      loggedPlayingRef.current = false;
+      log({ t: now(), type: "pause", videoTime: Math.round(video.currentTime * 1000) });
       video.pause();
     } else {
-      if (video.duration > 0 && video.currentTime >= video.duration - 0.05) {
-        video.currentTime = 0;
-        eventsRef.current.push({ t: now(), type: "seek", videoTime: 0 });
+      const ended = video.duration > 0 && video.currentTime >= video.duration - 0.15;
+      if (ended && isMulti && clipIdxRef.current < playlist.length - 1) {
+        advance(clipIdxRef.current + 1);
+        return;
       }
+      if (ended) {
+        video.currentTime = 0;
+        log({ t: now(), type: "seek", videoTime: 0 });
+      }
+      loggedPlayingRef.current = true;
+      log({ t: now(), type: "play", videoTime: Math.round(video.currentTime * 1000) });
       video.play();
     }
   };
 
   const restart = () => {
-    if (phaseRef.current !== "recording") return;
+    if (phaseRef.current !== "recording" || busyRef.current) return;
     video.currentTime = 0;
-    eventsRef.current.push({ t: now(), type: "seek", videoTime: 0 });
-    if (!isPlaying) video.play();
+    log({ t: now(), type: "seek", videoTime: 0 });
+    if (!isPlaying) {
+      loggedPlayingRef.current = true;
+      log({ t: now(), type: "play", videoTime: 0 });
+      video.play();
+    }
   };
 
   const clearDrawings = () => {
     if (phaseRef.current !== "recording") return;
-    eventsRef.current.push({ t: now(), type: "clear" });
+    log({ t: now(), type: "clear" });
     setStrokes([]);
   };
 
@@ -143,14 +269,11 @@ function RecordSession({ clip, onClose }) {
     video.pause();
     try {
       await recorder.stop();
-      const log = {
-        version: 1,
-        createdAt: Date.now(),
+      await onSave(recorder.uri, {
         durationMs: now(),
         events: eventsRef.current,
         strokes: strokesRef.current,
-      };
-      await saveReview(clip.file, recorder.uri, log);
+      });
       onClose(true);
     } catch (e) {
       setError(`Kunde inte spara genomgången: ${e?.message ?? e}`);
@@ -169,6 +292,7 @@ function RecordSession({ clip, onClose }) {
 
   const mm = Math.floor(elapsed / 60);
   const ss = String(elapsed % 60).padStart(2, "0");
+  const hasNext = isMulti && clipIdx < playlist.length - 1;
 
   return (
     <View style={s.root}>
@@ -176,9 +300,14 @@ function RecordSession({ clip, onClose }) {
         <Pressable onPress={cancel} hitSlop={10}>
           <Text style={s.close}>‹ Avbryt</Text>
         </Pressable>
-        <Text style={s.title}>
-          {clip.player} · {clip.moment}
-        </Text>
+        <View style={{ alignItems: "center" }}>
+          <Text style={s.title}>{title}</Text>
+          {isMulti && (
+            <Text style={s.clipIndicator}>
+              Klipp {clipIdx + 1}/{playlist.length} · {playlist[clipIdx].moment}
+            </Text>
+          )}
+        </View>
         {phase === "recording" ? (
           <View style={s.recPill}>
             <View style={s.recDot} />
@@ -198,8 +327,11 @@ function RecordSession({ clip, onClose }) {
       {phase === "idle" ? (
         <View style={s.controls}>
           <Text style={s.hint}>
-            Prata medan klippet rullar. Pausa när du vill och rita med fingret direkt på bilden –
-            allt spelas upp likadant för spelaren.
+            {isMulti
+              ? `Prata medan klippen rullar – nästa klipp startar automatiskt när ett tar slut. `
+              : `Prata medan klippet rullar. `}
+            Pausa när du vill och rita med fingret direkt på bilden – allt spelas upp likadant för
+            spelaren.
           </Text>
           <Pressable onPress={start} style={s.bigBtn}>
             <Text style={s.bigBtnText}>● STARTA GENOMGÅNG</Text>
@@ -209,7 +341,8 @@ function RecordSession({ clip, onClose }) {
         <View style={s.controls}>
           <View style={s.controlRow}>
             <RoundBtn label={isPlaying ? "❚❚" : "▶"} sub={isPlaying ? "Pausa" : "Spela"} onPress={toggleVideo} />
-            <RoundBtn label="↺" sub="Från början" onPress={restart} />
+            <RoundBtn label="↺" sub="Om igen" onPress={restart} />
+            {hasNext && <RoundBtn label="»" sub="Nästa klipp" onPress={() => advance(clipIdx + 1)} />}
             <RoundBtn label="✕" sub="Sudda" onPress={clearDrawings} />
           </View>
           <Pressable
@@ -228,16 +361,17 @@ function RecordSession({ clip, onClose }) {
 }
 
 // ——— Uppspelning ———————————————————————————————
-function PlaySession({ clip, onClose }) {
-  const review = useMemo(() => loadReview(clip.file), [clip.file]);
-  const video = useVideoPlayer(clip.uri, (p) => {
+function PlaySession({ playlist, review, title, onClose }) {
+  const firstUri = (playlist.find(Boolean) ?? {}).uri;
+  const video = useVideoPlayer(firstUri, (p) => {
     p.muted = true;
     p.loop = false;
   });
-  const audio = useAudioPlayer(review ? review.audioUri : null);
+  const audio = useAudioPlayer(review.audioUri);
   const audioStatus = useAudioPlayerStatus(audio);
 
   const [phase, setPhase] = useState("ready"); // ready | playing | paused | done
+  const [clipIdx, setClipIdx] = useState(0);
   const [visibleStrokes, setVisibleStrokes] = useState([]);
 
   const eventIdxRef = useRef(0);
@@ -245,8 +379,9 @@ function PlaySession({ clip, onClose }) {
   const videoShouldPlayRef = useRef(false);
   const tickRef = useRef(null);
 
-  const events = review?.log?.events ?? [];
-  const allStrokes = review?.log?.strokes ?? [];
+  const events = review.log?.events ?? [];
+  const allStrokes = review.log?.strokes ?? [];
+  const isMulti = playlist.length > 1;
 
   useEffect(() => {
     setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }).catch(() => {});
@@ -266,8 +401,8 @@ function PlaySession({ clip, onClose }) {
       if (ev.type === "play") {
         const drift = Math.abs(video.currentTime * 1000 - ev.videoTime);
         if (drift > 400) video.currentTime = ev.videoTime / 1000;
-        video.play();
         videoShouldPlayRef.current = true;
+        video.play();
       } else if (ev.type === "pause") {
         video.pause();
         video.currentTime = ev.videoTime / 1000;
@@ -276,6 +411,18 @@ function PlaySession({ clip, onClose }) {
         video.currentTime = ev.videoTime / 1000;
       } else if (ev.type === "clear") {
         clearBeforeRef.current = ev.t;
+      } else if (ev.type === "clip") {
+        clearBeforeRef.current = ev.t;
+        const target = playlist[ev.index];
+        setClipIdx(ev.index);
+        if (target) {
+          video.pause();
+          swapSource(video, target.uri)
+            .then(() => {
+              if (videoShouldPlayRef.current) video.play();
+            })
+            .catch(() => {});
+        }
       }
     }
   };
@@ -299,12 +446,16 @@ function PlaySession({ clip, onClose }) {
     }, 100);
   };
 
-  const playFromStart = () => {
+  const playFromStart = async () => {
     eventIdxRef.current = 0;
     clearBeforeRef.current = -1;
     videoShouldPlayRef.current = false;
     setVisibleStrokes([]);
+    setClipIdx(0);
     video.pause();
+    try {
+      if (playlist[0]) await swapSource(video, playlist[0].uri);
+    } catch {}
     video.currentTime = 0;
     audio.seekTo(0);
     audio.play();
@@ -334,26 +485,20 @@ function PlaySession({ clip, onClose }) {
     }
   }, [audioStatus?.didJustFinish]);
 
-  if (!review) {
-    return (
-      <View style={[s.root, { justifyContent: "center", alignItems: "center", padding: 30 }]}>
-        <Text style={s.error}>Genomgången kunde inte läsas.</Text>
-        <Pressable onPress={() => onClose(false)} style={[s.bigBtn, { marginTop: 20 }]}>
-          <Text style={s.bigBtnText}>STÄNG</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   return (
     <View style={s.root}>
       <View style={s.header}>
         <Pressable onPress={() => onClose(false)} hitSlop={10}>
           <Text style={s.close}>‹ Stäng</Text>
         </Pressable>
-        <Text style={s.title}>
-          {clip.player} · {clip.moment}
-        </Text>
+        <View style={{ alignItems: "center" }}>
+          <Text style={s.title}>{title}</Text>
+          {isMulti && (
+            <Text style={s.clipIndicator}>
+              Klipp {clipIdx + 1}/{playlist.length} · {playlist[clipIdx]?.moment ?? ""}
+            </Text>
+          )}
+        </View>
         <View style={{ width: 64 }} />
       </View>
 
@@ -497,6 +642,7 @@ const s = StyleSheet.create({
   },
   close: { color: T.mut, fontFamily: F.body600, fontSize: 15, width: 64 },
   title: { color: T.line, fontFamily: F.cond700, fontSize: 18, letterSpacing: 0.5 },
+  clipIndicator: { color: T.mut, fontFamily: F.body, fontSize: 12, marginTop: 1 },
   recPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -512,11 +658,11 @@ const s = StyleSheet.create({
   recTime: { color: T.rec, fontFamily: F.cond800, fontSize: 14 },
   stage: { flex: 1, marginHorizontal: 12, borderRadius: 14, overflow: "hidden", backgroundColor: "#000" },
   controls: { padding: 16, paddingBottom: 26, alignItems: "center" },
-  controlRow: { flexDirection: "row", gap: 18, marginBottom: 14 },
+  controlRow: { flexDirection: "row", gap: 14, marginBottom: 14 },
   roundBtn: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: T.courtLite,
     alignItems: "center",
     justifyContent: "center",

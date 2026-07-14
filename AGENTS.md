@@ -22,4 +22,8 @@ Obs: expo-status-bar får INTE stå i plugins-listan i app.json på SDK 54.)
   (spec:ens basnamnskonvention, laddas upp bredvid klippet i steg 3), händelser/ritning i
   `<klippbas>.review.json`. Synkad uppspelning sker i appen; inbränd exportvideo kräver ffmpeg
   och development build – medvetet framskjutet tills appen lämnar Expo Go.
+- Fleklippsgenomgångar: en genomgång över alla en spelares klipp i följd (auto-hopp vid klippslut,
+  "»"-knapp för manuellt byte). Sparas som `<bas>.m4a` + `<bas>.multireview.json` med egen
+  klippinfo; 'clip'-händelser i loggen byter videokälla. Startas från spelarfiltret i Granska.
+  OBS: 'clip'-index pekar på positioner i ursprungslistan – borttagna klipp blir null-platser.
 - Testas i Expo Go (`npx expo start`), därför inga bibliotek med egna native-moduler utanför Expo SDK.
