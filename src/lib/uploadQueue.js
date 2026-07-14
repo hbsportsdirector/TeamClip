@@ -1,8 +1,6 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { loadJSON, saveJSON } from "./persist";
-import { listClips, sanitize, todayStr } from "./clips";
-import { listMultiReviews } from "./review";
-import { exportVideoName, multiExportVideoName } from "./exportReview";
+import { listMerges } from "./dailyMerge";
 import * as googleAuth from "./googleAuth";
 import { ensureFolderPath, shareFolderOnce, uploadFile } from "./drive";
 
@@ -59,49 +57,26 @@ const fileExists = (name) => {
   }
 };
 
-// Bygger arbetslistan: råklipp + färdiga genomgångsvideor som inte laddats
-// upp. Allt sorteras i datummappar (TeamClip/Spelare/<Namn>/<ÅÅÅÅ-MM-DD>/);
-// delningen ligger på spelarmappen så spelaren ser alla datum. Ljudfilerna
-// (m4a) laddas inte upp – genomgångsvideon ersätter dem i Drive.
+// Arbetslistan = dagssammanställningarna (byggs av dailyMerge vid "Passet
+// klart"). Två filer per spelare och dag – klipp + genomgång – i datummappar
+// (TeamClip/Spelare/<Namn>/<ÅÅÅÅ-MM-DD>/); delningen ligger på spelarmappen
+// så spelaren ser alla datum. Enskilda filer laddas inte upp längre.
 function pendingWork() {
   const u = getUploads();
   const registry = loadJSON("appstate.json", { registry: [] }).registry;
   const emailOf = (playerId) => registry.find((r) => r.id === playerId)?.email ?? "";
   const work = [];
 
-  for (const clip of listClips(undefined, { includeArchived: true })) {
-    const day = todayStr(new Date(clip.ts || Date.now()));
-    const target = clip.guest
-      ? { folder: ["TeamClip", clip.group || "Grupp", "Gäster", day] }
+  for (const m of listMerges()) {
+    if (!fileExists(m.file) || u[m.file]?.status === "done") continue;
+    const target = m.guest
+      ? { folder: ["TeamClip", m.group || "Grupp", "Gäster", m.day] }
       : {
-          folder: ["TeamClip", "Spelare", clip.player, day],
-          sharePath: ["TeamClip", "Spelare", clip.player],
-          shareWith: emailOf(clip.playerId),
+          folder: ["TeamClip", "Spelare", m.player, m.day],
+          sharePath: ["TeamClip", "Spelare", m.player],
+          shareWith: emailOf(m.playerId),
         };
-    if (u[clip.file]?.status !== "done") {
-      work.push({ file: clip.file, mime: "video/mp4", ...target });
-    }
-    const exportVideo = exportVideoName(clip.file);
-    if (fileExists(exportVideo) && u[exportVideo]?.status !== "done") {
-      work.push({ file: exportVideo, mime: "video/mp4", ...target });
-    }
-  }
-
-  for (const mr of listMultiReviews(undefined, { includeArchived: true })) {
-    const video = multiExportVideoName(mr.name);
-    if (fileExists(video) && u[video]?.status !== "done") {
-      const d = new Date(mr.createdAt || Date.now());
-      const day = todayStr(d);
-      const hhmm = `${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
-      work.push({
-        file: video,
-        mime: "video/mp4",
-        driveName: `${day}_Genomgang_${sanitize(mr.player)}_${hhmm}.mp4`,
-        folder: ["TeamClip", "Spelare", mr.player, day],
-        sharePath: ["TeamClip", "Spelare", mr.player],
-        shareWith: emailOf(mr.playerId),
-      });
-    }
+    work.push({ file: m.file, driveName: m.driveName, mime: "video/mp4", ...target });
   }
 
   return work;

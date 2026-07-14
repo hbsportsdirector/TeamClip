@@ -24,6 +24,8 @@ import SpontRecordScreen from "./src/screens/SpontRecordScreen";
 import ReviewSessionScreen from "./src/screens/ReviewSessionScreen";
 import DriveScreen from "./src/screens/DriveScreen";
 import * as uploadQueue from "./src/lib/uploadQueue";
+import * as exportReview from "./src/lib/exportReview";
+import * as dailyMerge from "./src/lib/dailyMerge";
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -55,7 +57,14 @@ function Root() {
   const [session, setSession] = useState(null);
 
   useEffect(() => {
-    uploadQueue.kick();
+    // bortglömda pass från tidigare dagar avslutas automatiskt, sedan
+    // export → dagssammanställning → uppladdning
+    dailyMerge.autoArchiveStale();
+    exportReview
+      .kick()
+      .then(() => dailyMerge.processPending())
+      .then(() => uploadQueue.kick())
+      .catch((e) => console.warn("Pipeline:", e?.message ?? e));
   }, []);
 
   const group = session ? groups.find((g) => g.id === session.groupId) : null;

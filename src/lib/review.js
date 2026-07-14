@@ -118,10 +118,13 @@ export function listMultiReviews(groupId, { includeArchived = false } = {}) {
           name: f.name,
           player: meta.player,
           playerId: meta.playerId ?? null,
+          groupId: meta.groupId ?? null,
+          group: meta.group ?? "",
           clipCount: meta.clips?.length ?? 0,
           durationMs: meta.durationMs ?? 0,
           createdAt: meta.createdAt ?? 0,
           archived: !!meta.archived,
+          merged: !!meta.merged,
         });
       } catch {}
     }
@@ -147,6 +150,39 @@ export function archiveMultiReviews(groupId) {
     }
   } catch (e) {
     console.warn("Kunde inte arkivera genomgångar:", e);
+  }
+}
+
+export function archiveMultiReviewsBeforeToday() {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  try {
+    const dir = clipsDir();
+    if (!dir.exists) return;
+    for (const f of dir.list()) {
+      if (!(f instanceof File) || !f.name.endsWith(MULTI_SUFFIX)) continue;
+      try {
+        const meta = JSON.parse(f.textSync());
+        if (meta.archived || (meta.createdAt ?? 0) >= startOfToday.getTime()) continue;
+        meta.archived = true;
+        f.write(JSON.stringify(meta));
+      } catch {}
+    }
+  } catch (e) {
+    console.warn("Kunde inte arkivera genomgångar:", e);
+  }
+}
+
+export function setMultiReviewMerged(name) {
+  try {
+    const f = new File(clipsDir(), name);
+    if (!f.exists) return;
+    const meta = JSON.parse(f.textSync());
+    if (meta.merged) return;
+    meta.merged = true;
+    f.write(JSON.stringify(meta));
+  } catch (e) {
+    console.warn("Kunde inte markera genomgång som sammanslagen:", e);
   }
 }
 

@@ -159,6 +159,37 @@ export function archiveGroupClips(groupId) {
   return n;
 }
 
+// Glömt "Passet klart"? Gårdagens (och äldre) klipp arkiveras automatiskt
+export function archiveClipsBeforeToday() {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const index = readIndex();
+  let n = 0;
+  for (const c of index) {
+    if (!c.archived && (c.ts ?? 0) < startOfToday.getTime()) {
+      c.archived = true;
+      n++;
+    }
+  }
+  if (n > 0) writeIndex(index);
+  return n;
+}
+
+// Markerar källfiler som medtagna i en dagssammanställning.
+// field: 'merged' (råklipp) eller 'exportMerged' (genomgångsvideo)
+export function setClipsMerged(fileNames, field = "merged") {
+  const set = new Set(fileNames);
+  const index = readIndex();
+  let changed = false;
+  for (const c of index) {
+    if (set.has(c.file) && !c[field]) {
+      c[field] = true;
+      changed = true;
+    }
+  }
+  if (changed) writeIndex(index);
+}
+
 export function clipCountForGroup(groupId) {
   try {
     return listClips(groupId).length;

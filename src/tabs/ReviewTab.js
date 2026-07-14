@@ -14,6 +14,15 @@ import {
 } from "../lib/review";
 import * as uploadQueue from "../lib/uploadQueue";
 import * as exportReview from "../lib/exportReview";
+import * as dailyMerge from "../lib/dailyMerge";
+
+// export → dagssammanställning → uppladdning, i den ordningen
+const runPipeline = () =>
+  exportReview
+    .kick()
+    .then(() => dailyMerge.processPending())
+    .then(() => uploadQueue.kick())
+    .catch((e) => console.warn("Pipeline:", e?.message ?? e));
 
 export default function ReviewTab({ group, session, onOpenReview }) {
   const { registry } = useApp();
@@ -37,16 +46,15 @@ export default function ReviewTab({ group, session, onOpenReview }) {
 
   const [, setUploadTick] = useState(0);
   useEffect(() => {
-    // exporter först så att färdiga genomgångsvideor kommer med i kön
-    exportReview.kick().then(() => uploadQueue.kick());
-    const un1 = uploadQueue.subscribe(() => setUploadTick((t) => t + 1));
-    const un2 = exportReview.subscribe(() => {
-      setUploadTick((t) => t + 1);
-      uploadQueue.kick();
-    });
+    runPipeline();
+    const tick = () => setUploadTick((t) => t + 1);
+    const un1 = uploadQueue.subscribe(tick);
+    const un2 = exportReview.subscribe(tick);
+    const un3 = dailyMerge.subscribe(tick);
     return () => {
       un1();
       un2();
+      un3();
     };
   }, []);
 
@@ -136,6 +144,7 @@ export default function ReviewTab({ group, session, onOpenReview }) {
         setFilter("Alla");
         setSelected(null);
         refresh();
+        runPipeline();
       },
     });
   };
@@ -401,15 +410,26 @@ const fmtDur = (ms) => {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 };
 
+function mergeDeliveryText(sourceFile, doneText) {
+  const m = dailyMerge.findMergeFor(sourceFile);
+  if (!m) return "◌ Väntar på dagens sammanställning…";
+  const up = uploadQueue.getStatus(m.file);
+  if (up?.status === "done") return doneText;
+  if (up?.status === "uploading") return "↑ Dagens fil laddas upp till Drive…";
+  if (up?.status === "error") return "⚠ Uppladdningen misslyckades – görs om automatiskt";
+  return "◌ Dagens fil väntar på uppladdning";
+}
+
 function multiExportStatusText(mr) {
   const st = exportReview.getMultiExportStatus(mr.name);
   if (st === "exporting") return "🎬 Skapar genomgångsvideo…";
   if (st === "error") return "⚠ Videoexporten misslyckades";
   if (st === "done") {
-    const up = uploadQueue.getStatus(exportReview.multiExportVideoName(mr.name));
-    return up?.status === "done"
-      ? "🎬 Video ✓ i spelarens Drive-mapp"
-      : "🎬 Video klar – laddas upp";
+    if (!mr.archived) return "🎬 Video klar – skickas när passet är klart";
+    return mergeDeliveryText(
+      exportReview.multiExportVideoName(mr.name),
+      "🎬 Video ✓ i spelarens Drive-mapp (dagens genomgångsfil)"
+    );
   }
   return "🎬 Väntar på videoexport";
 }
@@ -419,22 +439,27 @@ function exportStatusText(clip) {
   if (st === "exporting") return "🎬 Skapar genomgångsvideo…";
   if (st === "error") return "⚠ Videoexporten misslyckades";
   if (st === "done") {
-    const up = uploadQueue.getStatus(clip.file.replace(/\.mp4$/, "_genomgang.mp4"));
-    return up?.status === "done"
-      ? "🎬 Genomgångsvideo ✓ i Drive"
-      : "🎬 Genomgångsvideo klar – laddas upp";
+    if (!clip.archived) return "🎬 Genomgångsvideo klar – skickas när passet är klart";
+    return mergeDeliveryText(
+      exportReview.exportVideoName(clip.file),
+      "🎬 Genomgång ✓ i Drive (dagens genomgångsfil)"
+    );
   }
   return null;
 }
 
 function uploadStatusText(clip) {
-  const st = uploadQueue.getStatus(clip.file);
-  if (st?.status === "done") {
-    return clip.guest ? "✓ I gruppens gästmapp på Drive" : `✓ I ${clip.player}s Drive-mapp`;
+  if (!clip.archived) {
+    return clip.guest
+      ? "◌ Sparat lokalt · skickas till gästmappen när passet är klart"
+      : "✓ Sparat lokalt · skickas till Drive när passet är klart";
   }
-  if (st?.status === "uploading") return "↑ Laddar upp till Drive…";
-  if (st?.status === "error") return "⚠ Uppladdningen misslyckades – görs om automatiskt";
-  return clip.guest ? "◌ Sparat lokalt – gästklipp delas inte" : "✓ Sparat lokalt";
+  return mergeDeliveryText(
+    clip.file,
+    clip.guest
+      ? "✓ I gruppens gästmapp (dagens klippfil)"
+      : `✓ I ${clip.player}s Drive-mapp (dagens klippfil)`
+  );
 }
 
 function dayLabel(ts) {
