@@ -90,7 +90,9 @@ function pendingWork() {
     work.push({ file: m.file, driveName: m.driveName, mime: "video/mp4", ...target });
   }
 
-  // Favoriter: enskilda kopior, laddas upp direkt (väntar inte på passet)
+  // Favoriter: enskilda kopior, laddas upp direkt (väntar inte på passet).
+  // Egen statusnyckel ("fav:...") – samma fil kan redan vara uppladdad i
+  // annat sammanhang och får inte blockera favoritkopian.
   for (const c of listClips(undefined, { includeArchived: true })) {
     if (!c.favorite) continue;
     const target = c.guest
@@ -100,21 +102,22 @@ function pendingWork() {
           sharePath: ["TeamClip", "Spelare", c.player],
           shareWith: emailOf(c.playerId),
         };
-    if (u[c.file]?.status !== "done") {
-      work.push({ file: c.file, mime: "video/mp4", ...target });
+    if (u[`fav:${c.file}`]?.status !== "done") {
+      work.push({ key: `fav:${c.file}`, file: c.file, mime: "video/mp4", ...target });
     }
     const exp = exportVideoName(c.file);
-    if (fileExists(exp) && u[exp]?.status !== "done") {
-      work.push({ file: exp, mime: "video/mp4", ...target });
+    if (fileExists(exp) && u[`fav:${exp}`]?.status !== "done") {
+      work.push({ key: `fav:${exp}`, file: exp, mime: "video/mp4", ...target });
     }
   }
   for (const mr of listMultiReviews(undefined, { includeArchived: true })) {
     if (!mr.favorite) continue;
     const video = multiExportVideoName(mr.name);
-    if (!fileExists(video) || u[video]?.status === "done") continue;
+    if (!fileExists(video) || u[`fav:${video}`]?.status === "done") continue;
     const d = new Date(mr.createdAt || Date.now());
     const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     work.push({
+      key: `fav:${video}`,
       file: video,
       driveName: `${day}_Genomgang_${mr.player}.mp4`,
       mime: "video/mp4",
@@ -146,10 +149,11 @@ export async function kick() {
     // filer som felar hoppas över resten av körningen och görs om vid nästa kick
     const failedThisRun = new Set();
     for (;;) {
-      const work = pendingWork().filter((w) => !failedThisRun.has(w.file));
+      const work = pendingWork().filter((w) => !failedThisRun.has(w.key ?? w.file));
       if (work.length === 0) break;
       const item = work[0];
-      setStatus(item.file, { status: "uploading", error: null });
+      const statusKey = item.key ?? item.file;
+      setStatus(statusKey, { status: "uploading", error: null });
       try {
         const freshToken = (await googleAuth.getAccessToken()) ?? token;
         // delningen ligger på spelarmappen, uppladdningen i datummappen
@@ -168,10 +172,10 @@ export async function kick() {
           mimeType: item.mime,
           folderId,
         });
-        setStatus(item.file, { status: "done", fileId });
+        setStatus(statusKey, { status: "done", fileId });
       } catch (e) {
-        setStatus(item.file, { status: "error", error: String(e?.message ?? e) });
-        failedThisRun.add(item.file);
+        setStatus(statusKey, { status: "error", error: String(e?.message ?? e) });
+        failedThisRun.add(statusKey);
         if (e?.status === 401) break; // token dog – vänta på nästa kick
       }
     }
