@@ -4,6 +4,7 @@ import { CameraView } from "expo-camera";
 import { useKeepAwake } from "expo-keep-awake";
 import { T, F } from "../theme";
 import { saveClip, discardTempClip } from "../lib/clips";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 // Kameran rullar kontinuerligt. Ett tryck på "Skott klart" stoppar inspelningen,
 // segmentet sedan förra trycket sparas på skytten som just skjutit, och nästa
@@ -24,10 +25,12 @@ export default function QueueRecordScreen({ order, moment, group, onFinish }) {
   const [flash, setFlash] = useState(null);
   const [clipCount, setClipCount] = useState(0);
   const [error, setError] = useState(null);
+  const [dialog, setDialog] = useState(null);
 
   const runningRef = useRef(false);
   const recordingRef = useRef(false);
   const cutRef = useRef(false);
+  const lastShotRef = useRef(false);
   const segStartRef = useRef(0);
   const idxRef = useRef(0);
   const savesRef = useRef([]);
@@ -96,6 +99,12 @@ export default function QueueRecordScreen({ order, moment, group, onFinish }) {
         setFlash(shooter);
         setTimeout(() => setFlash(null), 1200);
 
+        // "håll inne" på sista skottet: spara klippet och avsluta kön
+        if (lastShotRef.current) {
+          runningRef.current = false;
+          break;
+        }
+
         const next = idxRef.current + 1;
         if (next >= order.length) {
           idxRef.current = 0;
@@ -114,19 +123,30 @@ export default function QueueRecordScreen({ order, moment, group, onFinish }) {
     onFinish();
   }
 
-  const cut = () => {
+  const cut = (isLastShot = false) => {
     const elapsed = Date.now() - segStartRef.current;
     if (!runningRef.current || !recordingRef.current || elapsed < MIN_SEGMENT_MS) return;
+    if (isLastShot) lastShotRef.current = true;
     cutRef.current = true;
     camRef.current?.stopRecording();
   };
 
-  const stopAll = () => {
+  const doStopAll = () => {
     runningRef.current = false;
     camRef.current?.stopRecording();
     // om inspelningen inte hunnit starta ignoreras första stoppet – försök igen
     setTimeout(() => camRef.current?.stopRecording(), 400);
     if (!recordingRef.current && savesRef.current.length === 0) onFinish();
+  };
+
+  const stopAll = () => {
+    setDialog({
+      title: "Avsluta kön?",
+      message: `Det pågående klippet för ${order[idxRef.current].name} sparas INTE. Vill du spara sista skottet: håll inne "Skott klart" i stället.`,
+      confirmLabel: "Avsluta ändå",
+      destructive: true,
+      onConfirm: doStopAll,
+    });
   };
 
   const shooter = order[idx];
@@ -160,10 +180,16 @@ export default function QueueRecordScreen({ order, moment, group, onFinish }) {
         <Text style={[s.shooterName, shooter.guest && { color: T.mut }]}>{shooter.name}</Text>
         {shooter.guest && <Text style={s.guestNote}>gäst – klippet delas inte</Text>}
 
-        <Pressable onPress={cut} style={({ pressed }) => [s.cutBtn, pressed && s.cutBtnPressed]}>
+        <Pressable
+          onPress={() => cut(false)}
+          onLongPress={() => cut(true)}
+          delayLongPress={600}
+          style={({ pressed }) => [s.cutBtn, pressed && s.cutBtnPressed]}
+        >
           <Text style={s.cutBtnText}>SKOTT{"\n"}KLART</Text>
           <Text style={s.cutBtnSub}>klipp & nästa</Text>
         </Pressable>
+        <Text style={s.holdHint}>Sista skottet? Håll inne – sparar & avslutar</Text>
 
         <View style={s.flashSlot}>
           {flash && (
@@ -181,6 +207,7 @@ export default function QueueRecordScreen({ order, moment, group, onFinish }) {
           <Text style={s.stopText}>■ Avsluta kön</Text>
         </Pressable>
       </View>
+      <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
     </View>
   );
 }
@@ -248,6 +275,7 @@ const s = StyleSheet.create({
     letterSpacing: 1.5,
   },
   cutBtnSub: { color: "rgba(255,255,255,0.85)", fontFamily: F.cond700, fontSize: 14, marginTop: 2 },
+  holdHint: { color: T.dim, fontFamily: F.body, fontSize: 12, marginTop: 8 },
   flashSlot: { height: 22, marginTop: 10, justifyContent: "center" },
   flashText: { color: T.green, fontFamily: F.body600, fontSize: 14 },
   flashTextDim: { color: T.dim, fontFamily: F.body, fontSize: 14 },
