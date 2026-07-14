@@ -196,7 +196,7 @@ export function buildAss(log) {
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    "Style: TC,Arial,20,&H00605AFF,&H00FFFFFF,&H00605AFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,7,0,0,0,1",
+    "Style: TC,Roboto,20,&H00605AFF,&H00FFFFFF,&H00605AFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,7,0,0,0,1",
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -224,9 +224,11 @@ function buildArgs(inputPaths, voicePath, outPath, segs, assPath) {
   });
   const pairs = segs.map((_, i) => `[v${i}][a${i}]`).join("");
   f.push(`${pairs}concat=n=${segs.length}:v=1:a=1[vcat][acat]`);
-  // ritningen bränns in efter concat – tidsaxeln är redan ljudets (pauser inräknade)
+  // ritningen bränns in efter concat – tidsaxeln är redan ljudets (pauser
+  // inräknade). fontsdir krävs: utan typsnitt renderar libass INGA händelser,
+  // inte ens rena vektorritningar ("fontselect: failed to find any fallback")
   const vOut = assPath ? "vfin" : "vcat";
-  if (assPath) f.push(`[vcat]ass='${assPath}'[vfin]`);
+  if (assPath) f.push(`[vcat]ass=filename='${assPath}':fontsdir=/system/fonts[vfin]`);
   // Originalljudet (skottet, sargen) kvar under på lägre volym...
   f.push(`[acat]volume=0.3[abg]`);
   // ...och tränarrösten normaliserad så den ligger tydligt över
