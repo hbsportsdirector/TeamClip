@@ -7,10 +7,13 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0B1233",
+    "scheme": "teamclip",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "app.teamclip"
     },
     "android": {
+      "package": "app.teamclip",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -31,7 +34,8 @@
           "microphonePermission": "TeamClip använder mikrofonen för ljudet i klippen och för röstmemon."
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "@react-native-google-signin/google-signin"
     ]
   }
 }
