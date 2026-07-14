@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, Text, Pressable, FlatList, StyleSheet } from "react-native";
-import { useVideoPlayer, VideoView } from "expo-video";
 import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
 import { Chip } from "../components/ui";
 import ConfirmDialog from "../components/ConfirmDialog";
+import InlinePlayer from "../components/InlinePlayer";
+import {
+  fmtDur,
+  dayLabel,
+  uploadStatusText,
+  exportStatusText,
+  multiExportStatusText,
+} from "../lib/clipStatus";
 import {
   listClips,
   deleteClip,
@@ -31,31 +38,20 @@ const runPipeline = () =>
     .then(() => uploadQueue.kick())
     .catch((e) => console.warn("Pipeline:", e?.message ?? e));
 
+// Granska = passets arbetsyta, enbart nutid. Favoriter och Arkiv bor i
+// den egna Favoriter-fliken.
 export default function ReviewTab({ group, session, onOpenReview }) {
   const { registry } = useApp();
-  const [allClips, setAllClips] = useState(() => safeList(group.id));
-  const [allMultiReviews, setAllMultiReviews] = useState(() =>
-    listMultiReviews(group.id, { includeArchived: true })
-  );
-  const [filter, setFilterRaw] = useState("Alla");
-  const [subFilter, setSubFilter] = useState("Alla");
+  const [clips, setClips] = useState(() => safeList(group.id));
+  const [multiReviews, setMultiReviews] = useState(() => listMultiReviews(group.id));
+  const [filter, setFilter] = useState("Alla");
   const [selected, setSelected] = useState(null);
   const [dialog, setDialog] = useState(null);
 
-  const setFilter = (f) => {
-    setFilterRaw(f);
-    setSubFilter("Alla");
-  };
-
   const refresh = useCallback(() => {
-    setAllClips(safeList(group.id));
-    setAllMultiReviews(listMultiReviews(group.id, { includeArchived: true }));
+    setClips(safeList(group.id));
+    setMultiReviews(listMultiReviews(group.id));
   }, [group.id]);
-
-  const clips = allClips.filter((c) => !c.archived);
-  const archivedClips = allClips.filter((c) => c.archived);
-  const multiReviews = allMultiReviews.filter((mr) => !mr.archived);
-  const archivedMultiReviews = allMultiReviews.filter((mr) => mr.archived);
 
   const [, setUploadTick] = useState(0);
   useEffect(() => {
@@ -76,58 +72,27 @@ export default function ReviewTab({ group, session, onOpenReview }) {
     .filter(Boolean);
 
   const hasGuests = clips.some((c) => c.guest);
-  const favoriteClips = allClips.filter((c) => c.favorite);
-  const favoriteMultiReviews = allMultiReviews.filter((mr) => mr.favorite);
   const filters = [
     "Alla",
     ...present.map((p) => p.name),
     ...(hasGuests ? ["Gäster"] : []),
-    ...(favoriteClips.length > 0 || favoriteMultiReviews.length > 0 ? ["⭐ Favoriter"] : []),
-    ...(archivedClips.length > 0 || archivedMultiReviews.length > 0 ? ["Arkiv"] : []),
   ];
-  // Arkiv och Favoriter kan snävas in per spelare via en andra chiprad
-  const inSpecialView = filter === "Arkiv" || filter === "⭐ Favoriter";
-  const baseShown =
-    filter === "Arkiv"
-      ? archivedClips
-      : filter === "⭐ Favoriter"
-        ? favoriteClips
-        : clips.filter((c) =>
-            filter === "Alla" ? true : filter === "Gäster" ? c.guest : c.player === filter && !c.guest
-          );
-  const bySub = (player, guest) =>
-    subFilter === "Alla" ? true : subFilter === "Gäster" ? guest : player === subFilter && !guest;
-  const shown = inSpecialView ? baseShown.filter((c) => bySub(c.player, c.guest)) : baseShown;
+  const shown = clips.filter((c) =>
+    filter === "Alla" ? true : filter === "Gäster" ? c.guest : c.player === filter && !c.guest
+  );
 
-  const subHasGuests = inSpecialView && baseShown.some((c) => c.guest);
-
-  const baseMultiReviews =
-    filter === "Arkiv"
-      ? archivedMultiReviews
-      : filter === "⭐ Favoriter"
-        ? favoriteMultiReviews
-        : multiReviews.filter((mr) => (filter === "Alla" ? true : mr.player === filter));
-  const shownMultiReviews = inSpecialView
-    ? baseMultiReviews.filter((mr) => bySub(mr.player, false))
-    : baseMultiReviews;
-
-  const subPlayers = inSpecialView
-    ? [
-        ...new Set([
-          ...baseShown.filter((c) => !c.guest).map((c) => c.player),
-          ...baseMultiReviews.map((mr) => mr.player),
-        ]),
-      ].sort()
-    : [];
+  const shownMultiReviews = multiReviews.filter((mr) =>
+    filter === "Alla" ? true : mr.player === filter
+  );
 
   // Erbjud fleklippsgenomgång så fort alla dagens klipp i vyn hör till en
   // och samma spelare – även under "Alla" när bara en spelare har filmats.
   // Bara dagens: en genomgång gäller passet, inte veckor av gamla klipp.
   let multiCandidate = null;
   const todayKey = new Date().toDateString();
-  const eligible = ["Arkiv", "⭐ Favoriter"].includes(filter)
-    ? []
-    : shown.filter((c) => !c.guest && new Date(c.ts).toDateString() === todayKey);
+  const eligible = shown.filter(
+    (c) => !c.guest && new Date(c.ts).toDateString() === todayKey
+  );
   if (eligible.length >= 2 && new Set(eligible.map((c) => c.player)).size === 1) {
     multiCandidate = {
       name: eligible[0].player,
@@ -234,21 +199,7 @@ export default function ReviewTab({ group, session, onOpenReview }) {
         ))}
       </View>
 
-      {inSpecialView && (subPlayers.length > 1 || subHasGuests) && (
-        <View style={s.subFilterWrap}>
-          {["Alla", ...subPlayers, ...(subHasGuests ? ["Gäster"] : [])].map((f) => (
-            <Chip
-              key={f}
-              label={f}
-              small
-              active={subFilter === f}
-              onPress={() => setSubFilter(f)}
-            />
-          ))}
-        </View>
-      )}
-
-      {selected && <Player key={selected.uri} clip={selected} />}
+      {selected && <InlinePlayer key={selected.uri} uri={selected.uri} />}
 
       <FlatList
         data={listData}
@@ -303,14 +254,13 @@ export default function ReviewTab({ group, session, onOpenReview }) {
         ListEmptyComponent={
           shownMultiReviews.length === 0 ? (
             <Text style={s.empty}>
-              {filter === "Arkiv"
-                ? "Arkivet är tomt."
-                : "Inga klipp än.\nGå till Filma och fånga ett skott – klippen dyker upp här, sorterade per spelare."}
+              Inga klipp än.{"\n"}Gå till Filma och fånga ett skott – klippen dyker upp här,
+              sorterade per spelare.
             </Text>
           ) : null
         }
         ListFooterComponent={
-          filter !== "Arkiv" && clips.length > 0 ? (
+          clips.length > 0 ? (
             <Pressable onPress={confirmFinishSession} style={s.finishBtn}>
               <Text style={s.finishBtnText}>✓ Passet klart – rensa vyn</Text>
               <Text style={s.finishBtnSub}>
@@ -469,100 +419,13 @@ function ClipCard({
   );
 }
 
-function Player({ clip }) {
-  const player = useVideoPlayer(clip.uri, (p) => {
-    p.loop = true;
-    p.play();
-  });
-  return (
-    <View style={s.playerWrap}>
-      <VideoView player={player} style={s.player} contentFit="contain" nativeControls />
-    </View>
-  );
-}
-
-const fmtDur = (ms) => {
-  const sec = Math.round(ms / 1000);
-  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
-};
-
-function mergeDeliveryText(sourceFile, doneText) {
-  const m = dailyMerge.findMergeFor(sourceFile);
-  if (!m) return "◌ Väntar på dagens sammanställning…";
-  const up = uploadQueue.getStatus(m.file);
-  if (up?.status === "done") return doneText;
-  if (up?.status === "uploading") return "↑ Dagens fil laddas upp till Drive…";
-  if (up?.status === "error") return "⚠ Uppladdningen misslyckades – görs om automatiskt";
-  return "◌ Dagens fil väntar på uppladdning";
-}
-
-function multiExportStatusText(mr) {
-  const st = exportReview.getMultiExportStatus(mr.name);
-  if (st === "exporting") return "🎬 Skapar genomgångsvideo…";
-  if (st === "error") return "⚠ Videoexporten misslyckades";
-  if (st === "done") {
-    if (!mr.archived) return "🎬 Video klar – skickas när passet är klart";
-    return mergeDeliveryText(
-      exportReview.multiExportVideoName(mr.name),
-      "🎬 Video ✓ i spelarens Drive-mapp (dagens genomgångsfil)"
-    );
-  }
-  return "🎬 Väntar på videoexport";
-}
-
-function exportStatusText(clip) {
-  const st = exportReview.getExportStatus(clip.file);
-  if (st === "exporting") return "🎬 Skapar genomgångsvideo…";
-  if (st === "error") return "⚠ Videoexporten misslyckades";
-  if (st === "done") {
-    if (!clip.archived) return "🎬 Genomgångsvideo klar – skickas när passet är klart";
-    return mergeDeliveryText(
-      exportReview.exportVideoName(clip.file),
-      "🎬 Genomgång ✓ i Drive (dagens genomgångsfil)"
-    );
-  }
-  return null;
-}
-
-function uploadStatusText(clip) {
-  if (!clip.archived) {
-    return clip.guest
-      ? "◌ Sparat lokalt · skickas till gästmappen när passet är klart"
-      : "✓ Sparat lokalt · skickas till Drive när passet är klart";
-  }
-  return mergeDeliveryText(
-    clip.file,
-    clip.guest
-      ? "✓ I gruppens gästmapp (dagens klippfil)"
-      : `✓ I ${clip.player}s Drive-mapp (dagens klippfil)`
-  );
-}
-
-function dayLabel(ts) {
-  const d = new Date(ts);
-  const today = new Date();
-  const yesterday = new Date(today.getTime() - 86400000);
-  if (d.toDateString() === today.toDateString()) return "Idag";
-  if (d.toDateString() === yesterday.toDateString()) return "Igår";
-  return d.toLocaleDateString("sv-SE", { day: "numeric", month: "long" });
-}
-
 const s = StyleSheet.create({
-  filterRow: { gap: 8, paddingHorizontal: 16, paddingBottom: 12 },
   filterWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
     paddingHorizontal: 16,
     paddingBottom: 12,
-  },
-  subFilterWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 7,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    marginTop: -2,
   },
   empty: {
     color: T.dim,
@@ -689,12 +552,4 @@ const s = StyleSheet.create({
   trash: { fontSize: 13, opacity: 0.55, padding: 4 },
   star: { fontSize: 15, padding: 3 },
   starOff: { opacity: 0.45, color: T.mut },
-  playerWrap: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 14,
-    overflow: "hidden",
-    backgroundColor: "#000",
-  },
-  player: { width: "100%", height: 240 },
 });

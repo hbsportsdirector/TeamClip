@@ -3,8 +3,14 @@ import { T, F } from "../theme";
 import PrepTab from "../tabs/PrepTab";
 import FilmTab from "../tabs/FilmTab";
 import ReviewTab from "../tabs/ReviewTab";
+import FavoritesTab from "../tabs/FavoritesTab";
 
-const TITLES = { prep: "Förbered passet", film: "Filma", review: "Granska" };
+const TITLES = {
+  prep: "Förbered passet",
+  film: "Filma",
+  review: "Granska",
+  favorites: "Favoriter & arkiv",
+};
 
 export default function GroupScreen({
   group,
@@ -45,6 +51,7 @@ export default function GroupScreen({
         {tab === "review" && (
           <ReviewTab group={group} session={session} onOpenReview={onOpenReview} />
         )}
+        {tab === "favorites" && <FavoritesTab group={group} onOpenReview={onOpenReview} />}
       </View>
 
       <View style={s.nav}>
@@ -52,6 +59,7 @@ export default function GroupScreen({
           ["prep", "Förbered"],
           ["film", "Filma"],
           ["review", "Granska"],
+          ["favorites", "⭐"],
         ].map(([key, label]) => (
           <Pressable key={key} onPress={() => setTab(key)} style={[s.navBtn, tab === key && s.navBtnActive]}>
             <Text style={[s.navText, tab === key && s.navTextActive]}>{label}</Text>
@@ -100,8 +108,8 @@ const s = StyleSheet.create({
   navText: {
     color: T.dim,
     fontFamily: F.cond700,
-    fontSize: 16,
-    letterSpacing: 1.5,
+    fontSize: 14.5,
+    letterSpacing: 1,
     textTransform: "uppercase",
   },
   navTextActive: { color: T.accent },
