@@ -33,6 +33,14 @@ Obs: expo-status-bar får INTE stå i plugins-listan i app.json på SDK 54.)
   kopplingsvy i `src/screens/DriveScreen.js`. OAuth-klienter ligger i användarens
   Google Cloud-projekt "TeamClip" (samtyckesskärm i Testing-läge – testanvändare krävs;
   publiceras inför steg 5, drive.file kräver ingen Google-granskning).
+- Videoexport av genomgångar är byggd och verifierad 2026-07-14 (`src/lib/exportReview.js`):
+  ffmpeg bygger `<klippbas>_genomgang.mp4` med pauser som frysta bilder och ljudmix
+  (röst loudnorm I=-15 över originalljud på volume=0.3), laddas upp till spelarens mapp.
+  ffmpeg-kit är pensionerat – binären ligger VENDRAD i `vendor/` (SHA-256 i CHECKSUMS.md),
+  inlänkad via patches/ffmpeg-kit-react-native+*.patch (compileOnly) + plugins/withFfmpegAar.js
+  (flatDir i appmodulen). full-gpl = GPL-kod i bygget; måste ses över före App Store.
+  KVAR: ritning inbränd i exporten (kräver rastrering av strecken) och export av
+  fleklippsgenomgångar ('clip'-händelser → flera inputs i filtergrafen).
 - Testas numera i DEVELOPMENT BUILD via EAS (`eas build -p android --profile development`),
   inte Expo Go. Dev-flödet är detsamma: `npx expo start` + skanna QR (appen TeamClip).
   Detta låser upp ffmpeg-kit (inbrända exportgenomgångar) och react-native-vision-camera
