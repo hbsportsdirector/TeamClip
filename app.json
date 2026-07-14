@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "TeamClip",
+    "slug": "TeamClip",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B1233",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-video",
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "TeamClip använder kameran för att filma träningsklipp på spelarna.",
+          "microphonePermission": "TeamClip använder mikrofonen för ljudet i klippen och för röstmemon."
+        }
+      ]
+    ]
+  }
+}

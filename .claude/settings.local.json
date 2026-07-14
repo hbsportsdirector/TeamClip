@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(which node *)",
+      "Read(//c/Users/perlu/AppData/Roaming/**)",
+      "Read(//c/Users/perlu/AppData/Local/Microsoft/WinGet/**)",
+      "PowerShell(winget install --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --silent)"
+    ]
+  }
+}
