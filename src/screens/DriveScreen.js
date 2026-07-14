@@ -86,20 +86,39 @@ export default function DriveScreen({ onBack }) {
 
             <View style={s.card}>
               <Text style={s.cardTitle}>Uppladdningar</Text>
-              <Text style={s.cardText}>
-                {stats.done} klara{pending > 0 ? ` · ${pending} väntar` : ""}
-                {stats.error > 0 ? ` · ${stats.error} fel` : ""}
+              {pending === 0 && stats.error === 0 ? (
+                <Text style={[s.cardText, { color: T.green }]}>
+                  ✓ Allt uppladdat · {stats.done} {stats.done === 1 ? "fil" : "filer"} i Drive
+                </Text>
+              ) : (
+                <>
+                  <Text style={s.cardText}>
+                    {stats.uploading > 0
+                      ? `↑ Laddar upp… · ${pending} kvar`
+                      : `${pending} ${pending === 1 ? "fil" : "filer"} väntar`}
+                    {stats.error > 0 ? ` · ${stats.error} misslyckade` : ""}
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 10, alignItems: "center" }}>
+                    {stats.uploading === 0 && pending > 0 && (
+                      <Pressable onPress={() => uploadQueue.kick()} style={s.primaryBtnSmall}>
+                        <Text style={s.primaryBtnSmallText}>Ladda upp nu</Text>
+                      </Pressable>
+                    )}
+                    {stats.error > 0 && (
+                      <Pressable
+                        onPress={() => uploadQueue.retryErrors()}
+                        style={[s.ghostBtn, { marginTop: 0 }]}
+                      >
+                        <Text style={s.ghostBtnText}>Försök igen med misslyckade</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                </>
+              )}
+              <Text style={s.cardHint}>
+                Uppladdningen sköter sig själv – klipp köas direkt när de sparas och görs om
+                automatiskt om täckningen sviker.
               </Text>
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-                <Pressable onPress={() => uploadQueue.kick()} style={s.primaryBtnSmall}>
-                  <Text style={s.primaryBtnSmallText}>Ladda upp nu</Text>
-                </Pressable>
-                {stats.error > 0 && (
-                  <Pressable onPress={() => uploadQueue.retryErrors()} style={s.ghostBtn}>
-                    <Text style={s.ghostBtnText}>Försök igen med fel</Text>
-                  </Pressable>
-                )}
-              </View>
             </View>
 
             <Text style={s.note}>
@@ -135,6 +154,7 @@ const s = StyleSheet.create({
   card: { backgroundColor: T.courtLite, borderRadius: 16, padding: 16, marginBottom: 12 },
   cardTitle: { color: T.line, fontFamily: F.cond700, fontSize: 20, marginBottom: 4 },
   cardText: { color: T.mut, fontFamily: F.body, fontSize: 14, lineHeight: 20 },
+  cardHint: { color: T.dim, fontFamily: F.body, fontSize: 12.5, lineHeight: 18, marginTop: 10 },
   primaryBtn: {
     backgroundColor: T.accent,
     borderRadius: 14,
