@@ -43,9 +43,11 @@ export function listMerges() {
   return getMerges();
 }
 
-// Hittar sammanställningen som innehåller en given källfil
+// Hittar (nyaste) sammanställningen som innehåller en given källfil
 export function findMergeFor(sourceFile) {
-  return getMerges().find((m) => m.sources.includes(sourceFile)) ?? null;
+  const hits = getMerges().filter((m) => m.sources.includes(sourceFile));
+  if (hits.length === 0) return null;
+  return hits.reduce((a, b) => ((b.createdAt ?? 0) > (a.createdAt ?? 0) ? b : a));
 }
 
 function getFFmpeg() {
@@ -154,7 +156,8 @@ async function doProcess(ffmpeg) {
     const first = group[0];
     const day = dayOf(first.ts);
     const sources = group.sort((a, b) => a.ts - b.ts).map((c) => c.file);
-    const outName = `${day}_${sanitize(first.group || "Grupp")}_${sanitize(first.player)}_klipp.merged.mp4`;
+    // Date.now() i namnet: flera "Passet klart" samma dag får inte kollidera
+    const outName = `${day}_${sanitize(first.group || "Grupp")}_${sanitize(first.player)}_klipp_${Date.now()}.merged.mp4`;
     try {
       await concatFiles(ffmpeg, sources, outName);
       getMerges().push({
@@ -208,7 +211,7 @@ async function doProcess(ffmpeg) {
     const items = [...g.singles, ...g.multis].sort((a, b) => a.ts - b.ts);
     if (items.length === 0) continue;
     const day = dayOf(g.meta.ts);
-    const outName = `${day}_${sanitize(g.meta.group || "Grupp")}_${sanitize(g.meta.player)}_genomgang.merged.mp4`;
+    const outName = `${day}_${sanitize(g.meta.group || "Grupp")}_${sanitize(g.meta.player)}_genomgang_${Date.now()}.merged.mp4`;
     try {
       await concatFiles(ffmpeg, items.map((i) => i.file), outName);
       getMerges().push({

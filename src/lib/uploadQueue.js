@@ -68,7 +68,11 @@ function pendingWork() {
   const work = [];
 
   for (const m of listMerges()) {
-    if (!fileExists(m.file) || u[m.file]?.status === "done") continue;
+    if (!fileExists(m.file)) continue;
+    // "done" gäller bara om uppladdningen skedde EFTER att sammanställningen
+    // byggdes – skyddar mot att en nyare fil med samma namn hoppas över
+    const st = u[m.file];
+    if (st?.status === "done" && (st.at ?? 0) >= (m.createdAt ?? 0)) continue;
     const target = m.guest
       ? { folder: ["TeamClip", m.group || "Grupp", "Gäster", m.day] }
       : {
