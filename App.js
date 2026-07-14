@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -22,6 +22,8 @@ import GroupScreen from "./src/screens/GroupScreen";
 import QueueRecordScreen from "./src/screens/QueueRecordScreen";
 import SpontRecordScreen from "./src/screens/SpontRecordScreen";
 import ReviewSessionScreen from "./src/screens/ReviewSessionScreen";
+import DriveScreen from "./src/screens/DriveScreen";
+import * as uploadQueue from "./src/lib/uploadQueue";
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -51,6 +53,10 @@ function Root() {
   const { groups } = useApp();
   const [route, setRoute] = useState({ name: "home" });
   const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    uploadQueue.kick();
+  }, []);
 
   const group = session ? groups.find((g) => g.id === session.groupId) : null;
 
@@ -127,8 +133,10 @@ function Root() {
           onOpenReview={(payload, mode) => setRoute({ name: "review", payload, mode })}
           clipCount={clipCountForGroup(group.id)}
         />
+      ) : route.name === "drive" ? (
+        <DriveScreen onBack={() => setRoute({ name: "home" })} />
       ) : (
-        <HomeScreen openGroup={openGroup} />
+        <HomeScreen openGroup={openGroup} openDrive={() => setRoute({ name: "drive" })} />
       )}
     </SafeAreaView>
   );

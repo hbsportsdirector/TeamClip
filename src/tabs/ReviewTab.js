@@ -6,6 +6,7 @@ import { useApp } from "../state/AppContext";
 import { Chip } from "../components/ui";
 import { listClips, deleteClip, reassignClip } from "../lib/clips";
 import { hasReview, listMultiReviews, deleteMultiReview } from "../lib/review";
+import * as uploadQueue from "../lib/uploadQueue";
 
 export default function ReviewTab({ group, session, onOpenReview }) {
   const { registry } = useApp();
@@ -18,6 +19,12 @@ export default function ReviewTab({ group, session, onOpenReview }) {
     setClips(safeList(group.id));
     setMultiReviews(listMultiReviews(group.id));
   }, [group.id]);
+
+  const [, setUploadTick] = useState(0);
+  useEffect(() => {
+    uploadQueue.kick();
+    return uploadQueue.subscribe(() => setUploadTick((t) => t + 1));
+  }, []);
 
   const present = session.presentIds
     .map((id) => registry.find((r) => r.id === id))
@@ -293,11 +300,7 @@ function ClipCard({ clip, isSelected, onPlay, onDelete, present, onReassigned, o
           )}
         </View>
 
-        <Text style={s.status}>
-          {clip.guest
-            ? "◌ I gruppens gästhög – delas inte med någon"
-            : "✓ Sparat lokalt · Drive-uppladdning kommer i steg 3"}
-        </Text>
+        <Text style={s.status}>{uploadStatusText(clip)}</Text>
       </View>
       <Text style={s.playIcon}>{isSelected ? "▮▮" : "▶"}</Text>
     </Pressable>
@@ -320,6 +323,16 @@ const fmtDur = (ms) => {
   const sec = Math.round(ms / 1000);
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 };
+
+function uploadStatusText(clip) {
+  const st = uploadQueue.getStatus(clip.file);
+  if (st?.status === "done") {
+    return clip.guest ? "✓ I gruppens gästmapp på Drive" : `✓ I ${clip.player}s Drive-mapp`;
+  }
+  if (st?.status === "uploading") return "↑ Laddar upp till Drive…";
+  if (st?.status === "error") return "⚠ Uppladdningen misslyckades – görs om automatiskt";
+  return clip.guest ? "◌ Sparat lokalt – gästklipp delas inte" : "✓ Sparat lokalt";
+}
 
 function dayLabel(ts) {
   const d = new Date(ts);

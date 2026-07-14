@@ -4,13 +4,18 @@ import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
 import { SectionLabel, Chip, u } from "../components/ui";
 
-export default function HomeScreen({ openGroup }) {
+export default function HomeScreen({ openGroup, openDrive }) {
   const [view, setView] = useState("groups");
 
   return (
     <View style={{ flex: 1 }}>
       <View style={s.header}>
-        <Text style={s.kicker}>TeamClip</Text>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={s.kicker}>TeamClip</Text>
+          <Pressable onPress={openDrive} hitSlop={10}>
+            <Text style={s.driveLink}>Drive ⚙</Text>
+          </Pressable>
+        </View>
         <Text style={s.title}>{view === "groups" ? "Dina grupper" : "Spelarregister"}</Text>
         <View style={s.segmented}>
           {[
@@ -315,6 +320,7 @@ const s = StyleSheet.create({
     letterSpacing: 3,
     textTransform: "uppercase",
   },
+  driveLink: { color: T.mut, fontFamily: F.body600, fontSize: 13 },
   title: { color: T.line, fontFamily: F.cond800, fontSize: 34, marginTop: 2, marginBottom: 10 },
   segmented: { flexDirection: "row", backgroundColor: "#080E26", borderRadius: 12, padding: 4 },
   segBtn: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: "center" },
