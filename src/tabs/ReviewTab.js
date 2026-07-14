@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, Pressable, ScrollView, FlatList, StyleSheet } from "react-native";
+import { View, Text, Pressable, FlatList, StyleSheet } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
@@ -228,28 +228,24 @@ export default function ReviewTab({ group, session, onOpenReview }) {
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ flexGrow: 0 }}
-        contentContainerStyle={s.filterRow}
-      >
+      <View style={s.filterWrap}>
         {filters.map((f) => (
           <Chip key={f} label={f} active={filter === f} onPress={() => setFilter(f)} />
         ))}
-      </ScrollView>
+      </View>
 
       {inSpecialView && (subPlayers.length > 1 || subHasGuests) && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0 }}
-          contentContainerStyle={s.filterRow}
-        >
+        <View style={s.subFilterWrap}>
           {["Alla", ...subPlayers, ...(subHasGuests ? ["Gäster"] : [])].map((f) => (
-            <Chip key={f} label={f} active={subFilter === f} onPress={() => setSubFilter(f)} />
+            <Chip
+              key={f}
+              label={f}
+              small
+              active={subFilter === f}
+              onPress={() => setSubFilter(f)}
+            />
           ))}
-        </ScrollView>
+        </View>
       )}
 
       {selected && <Player key={selected.uri} clip={selected} />}
@@ -553,6 +549,21 @@ function dayLabel(ts) {
 
 const s = StyleSheet.create({
   filterRow: { gap: 8, paddingHorizontal: 16, paddingBottom: 12 },
+  filterWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  subFilterWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    marginTop: -2,
+  },
   empty: {
     color: T.dim,
     fontFamily: F.body,

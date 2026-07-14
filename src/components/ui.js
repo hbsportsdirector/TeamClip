@@ -5,13 +5,21 @@ export function SectionLabel({ children, style }) {
   return <Text style={[u.sectionLabel, style]}>{children}</Text>;
 }
 
-export function Chip({ label, active, dashed, onPress, style }) {
+export function Chip({ label, active, dashed, small, onPress, style }) {
   return (
     <Pressable
       onPress={onPress}
-      style={[u.chip, active && u.chipActive, dashed && u.chipDashed, style]}
+      style={[
+        u.chip,
+        small && u.chipSmall,
+        active && u.chipActive,
+        dashed && u.chipDashed,
+        style,
+      ]}
     >
-      <Text style={[u.chipText, active && u.chipTextActive]}>{label}</Text>
+      <Text style={[u.chipText, small && u.chipTextSmall, active && u.chipTextActive]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -35,7 +43,9 @@ export const u = StyleSheet.create({
   },
   chipActive: { backgroundColor: T.accent, borderColor: T.accent },
   chipDashed: { borderStyle: "dashed", borderColor: T.dim },
+  chipSmall: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: "#080E26", borderColor: "#080E26" },
   chipText: { color: T.mut, fontFamily: F.cond700, fontSize: 15, letterSpacing: 0.8 },
+  chipTextSmall: { fontSize: 13.5 },
   chipTextActive: { color: "#fff" },
   input: {
     flex: 1,
