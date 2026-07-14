@@ -157,14 +157,14 @@ export default function FavoritesTab({ group, onOpenReview }) {
         ))}
       </View>
 
-      {(players.length > 1 || hasGuests) && (
+      {(players.length > 0 || hasGuests) && (
         <View style={s.chipWrap}>
           {["Alla", ...players, ...(hasGuests ? ["Gäster"] : [])].map((p) => (
             <Chip key={p} label={p} small active={player === p} onPress={() => setPlayer(p)} />
           ))}
         </View>
       )}
-      {moments.length > 1 && (
+      {moments.length > 0 && (
         <View style={s.chipWrap}>
           {["Alla", ...moments].map((m) => (
             <Chip key={m} label={m} small active={moment === m} onPress={() => setMoment(m)} />
