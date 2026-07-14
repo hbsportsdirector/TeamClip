@@ -292,9 +292,10 @@ export default function ReviewTab({ group, session, onOpenReview }) {
   );
 }
 
+// Granska visar bara aktiva klipp – arkiverade bor i ⭐-fliken
 function safeList(groupId) {
   try {
-    return listClips(groupId, { includeArchived: true });
+    return listClips(groupId);
   } catch (e) {
     console.warn("Kunde inte lista klipp:", e);
     return [];
