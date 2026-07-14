@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { View, Text, Pressable, ScrollView, FlatList, StyleSheet, Alert } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { T, F } from "../theme";
