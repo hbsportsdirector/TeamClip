@@ -276,11 +276,21 @@ function RecordSession({ playlist, title, onSave, onClose, cancelLabel = "‹ Av
     if (phaseRef.current !== "recording") return;
     phaseRef.current = "saving";
     setPhase("saving");
+    const vt = Math.round(video.currentTime * 1000);
+    const clipDur = Math.round((video.duration || 0) * 1000);
     video.pause();
     try {
       await recorder.stop();
+      let durationMs = now();
+      // Avslutas genomgången mitt i klippet spelas resten ut i tystnad –
+      // ritningarna suddas och klippet får gå klart efter tränarens prat
+      if (clipDur > 0 && vt < clipDur - 300) {
+        eventsRef.current.push({ t: durationMs, type: "clear" });
+        eventsRef.current.push({ t: durationMs, type: "play", videoTime: vt });
+        durationMs += clipDur - vt;
+      }
       await onSave(recorder.uri, {
-        durationMs: now(),
+        durationMs,
         events: eventsRef.current,
         strokes: strokesRef.current,
         stage: stageRef.current,
@@ -395,9 +405,13 @@ function PlaySession({ playlist, review, title, onClose }) {
   const clearBeforeRef = useRef(-1);
   const videoShouldPlayRef = useRef(false);
   const tickRef = useRef(null);
+  // när rösten är slut men tidslinjen fortsätter (klippet spelar ut) drivs
+  // klockan av väggtid i stället för ljudposition
+  const tailAnchorRef = useRef(null); // { t, wall }
 
   const events = review.log?.events ?? [];
   const allStrokes = review.log?.strokes ?? [];
+  const totalMs = review.log?.durationMs ?? 0;
   const isMulti = playlist.length > 1;
 
   useEffect(() => {
@@ -454,12 +468,20 @@ function PlaySession({ playlist, review, title, onClose }) {
     return shown;
   };
 
+  const finishPlayback = () => {
+    stopTick();
+    video.pause();
+    setPhase("done");
+  };
+
   const startTick = () => {
     stopTick();
     tickRef.current = setInterval(() => {
-      const tMs = audio.currentTime * 1000;
+      const anchor = tailAnchorRef.current;
+      const tMs = anchor ? anchor.t + (Date.now() - anchor.wall) : audio.currentTime * 1000;
       applyEventsUpTo(tMs);
       setVisibleStrokes(computeStrokes(tMs));
+      if (anchor && tMs >= totalMs + 150) finishPlayback();
     }, 100);
   };
 
@@ -467,6 +489,7 @@ function PlaySession({ playlist, review, title, onClose }) {
     eventIdxRef.current = 0;
     clearBeforeRef.current = -1;
     videoShouldPlayRef.current = false;
+    tailAnchorRef.current = null;
     setVisibleStrokes([]);
     setClipIdx(0);
     video.pause();
@@ -482,12 +505,21 @@ function PlaySession({ playlist, review, title, onClose }) {
 
   const pauseResume = () => {
     if (phase === "playing") {
+      const anchor = tailAnchorRef.current;
+      if (anchor) {
+        tailAnchorRef.current = { t: anchor.t + (Date.now() - anchor.wall), wall: null };
+      }
       audio.pause();
       video.pause();
       stopTick();
       setPhase("paused");
     } else if (phase === "paused") {
-      audio.play();
+      const anchor = tailAnchorRef.current;
+      if (anchor) {
+        tailAnchorRef.current = { t: anchor.t, wall: Date.now() };
+      } else {
+        audio.play();
+      }
       if (videoShouldPlayRef.current) video.play();
       setPhase("playing");
       startTick();
@@ -496,9 +528,13 @@ function PlaySession({ playlist, review, title, onClose }) {
 
   useEffect(() => {
     if (audioStatus?.didJustFinish && phase === "playing") {
-      stopTick();
-      video.pause();
-      setPhase("done");
+      const audioMs = (audio.duration || audio.currentTime || 0) * 1000;
+      if (totalMs > audioMs + 300) {
+        // rösten slut men klippet spelar ut – växla till väggklocka
+        tailAnchorRef.current = { t: audioMs, wall: Date.now() };
+      } else {
+        finishPlayback();
+      }
     }
   }, [audioStatus?.didJustFinish]);
 
