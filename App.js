@@ -14,17 +14,12 @@ import {
   BarlowCondensed_800ExtraBold,
 } from "@expo-google-fonts/barlow-condensed";
 import { T } from "./src/theme";
-import { listClips } from "./src/lib/clips";
-import QueueSetupScreen from "./src/screens/QueueSetupScreen";
+import { AppProvider, useApp } from "./src/state/AppContext";
+import { clipCountForGroup } from "./src/lib/clips";
+import HomeScreen from "./src/screens/HomeScreen";
+import GroupScreen from "./src/screens/GroupScreen";
 import QueueRecordScreen from "./src/screens/QueueRecordScreen";
-import ClipsScreen from "./src/screens/ClipsScreen";
-
-const seedOrder = [
-  { key: "p1", name: "Kalle S", guest: false },
-  { key: "p2", name: "Olle B", guest: false },
-  { key: "p3", name: "Peter", guest: false },
-  { key: "p4", name: "Samuel", guest: false },
-];
+import SpontRecordScreen from "./src/screens/SpontRecordScreen";
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -36,45 +31,88 @@ export default function App() {
     BarlowCondensed_800ExtraBold,
   });
 
-  const [screen, setScreen] = useState("setup");
-  const [order, setOrder] = useState(seedOrder);
-  const [moment, setMoment] = useState("Kantskott");
-
   if (!fontsLoaded) {
     return <View style={{ flex: 1, backgroundColor: T.bg }} />;
   }
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" />
-      {screen === "record" ? (
-        <QueueRecordScreen order={order} moment={moment} onFinish={() => setScreen("clips")} />
-      ) : (
-        <SafeAreaView style={s.safe}>
-          {screen === "setup" && (
-            <QueueSetupScreen
-              order={order}
-              setOrder={setOrder}
-              moment={moment}
-              setMoment={setMoment}
-              onStart={() => setScreen("record")}
-              onShowClips={() => setScreen("clips")}
-              clipCount={safeClipCount()}
-            />
-          )}
-          {screen === "clips" && <ClipsScreen onBack={() => setScreen("setup")} />}
-        </SafeAreaView>
-      )}
+      <AppProvider>
+        <StatusBar style="light" />
+        <Root />
+      </AppProvider>
     </SafeAreaProvider>
   );
 }
 
-function safeClipCount() {
-  try {
-    return listClips().length;
-  } catch {
-    return 0;
+function Root() {
+  const { groups } = useApp();
+  const [route, setRoute] = useState({ name: "home" });
+  const [session, setSession] = useState(null);
+
+  const group = session ? groups.find((g) => g.id === session.groupId) : null;
+
+  const openGroup = (g) => {
+    setSession({
+      groupId: g.id,
+      presentIds: [...g.memberIds],
+      moment: "Kantskott",
+      tab: "prep",
+      filmMode: "spont",
+      order: null,
+      orderKey: null,
+      guestCounter: 0,
+    });
+    setRoute({ name: "group" });
+  };
+
+  const closeGroup = () => {
+    setSession(null);
+    setRoute({ name: "home" });
+  };
+
+  if (route.name === "queue" && group) {
+    return (
+      <QueueRecordScreen
+        order={session.order}
+        moment={session.moment}
+        group={group}
+        onFinish={() => {
+          setSession((s) => ({ ...s, tab: "review" }));
+          setRoute({ name: "group" });
+        }}
+      />
+    );
   }
+
+  if (route.name === "spont" && group) {
+    return (
+      <SpontRecordScreen
+        player={route.player}
+        moment={session.moment}
+        group={group}
+        onDone={() => setRoute({ name: "group" })}
+      />
+    );
+  }
+
+  return (
+    <SafeAreaView style={s.safe}>
+      {route.name === "group" && group ? (
+        <GroupScreen
+          group={group}
+          session={session}
+          setSession={setSession}
+          onBack={closeGroup}
+          onStartSpont={(player) => setRoute({ name: "spont", player })}
+          onStartQueue={() => setRoute({ name: "queue" })}
+          clipCount={clipCountForGroup(group.id)}
+        />
+      ) : (
+        <HomeScreen openGroup={openGroup} />
+      )}
+    </SafeAreaView>
+  );
 }
 
 const s = StyleSheet.create({

@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { CameraView } from "expo-camera";
 import { useKeepAwake } from "expo-keep-awake";
 import { T, F } from "../theme";
-import { saveClip, discardTempClip, nextSeq } from "../lib/clips";
+import { saveClip, discardTempClip } from "../lib/clips";
 
 // Kameran rullar kontinuerligt. Ett tryck på "Skott klart" stoppar inspelningen,
 // segmentet sedan förra trycket sparas på skytten som just skjutit, och nästa
@@ -13,7 +13,7 @@ import { saveClip, discardTempClip, nextSeq } from "../lib/clips";
 // hela tiden, luckan hamnar direkt efter att föregående skott sparats.
 const MIN_SEGMENT_MS = 700;
 
-export default function QueueRecordScreen({ order, moment, onFinish }) {
+export default function QueueRecordScreen({ order, moment, group, onFinish }) {
   useKeepAwake();
 
   const camRef = useRef(null);
@@ -30,12 +30,7 @@ export default function QueueRecordScreen({ order, moment, onFinish }) {
   const cutRef = useRef(false);
   const segStartRef = useRef(0);
   const idxRef = useRef(0);
-  const seqRef = useRef(1);
   const savesRef = useRef([]);
-
-  useEffect(() => {
-    seqRef.current = nextSeq();
-  }, []);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -86,13 +81,14 @@ export default function QueueRecordScreen({ order, moment, onFinish }) {
       const durationMs = Date.now() - segStartRef.current;
 
       if (cutRef.current && video?.uri) {
-        const seq = seqRef.current++;
         savesRef.current.push(
           saveClip(video.uri, {
-            moment,
             player: shooter.name,
+            playerId: shooter.rid ?? null,
+            groupId: group.id,
+            group: group.name,
+            moment,
             guest: shooter.guest,
-            seq,
             durationMs,
           }).catch((e) => setError(`Kunde inte spara klipp: ${e?.message ?? e}`))
         );

@@ -11,4 +11,9 @@ Obs: expo-status-bar får INTE stå i plugins-listan i app.json på SDK 54.)
 - Steg 1 (kameravy + kö-lägets kontinuerliga inspelning) är byggt: `src/screens/QueueRecordScreen.js`
   innehåller klipploopen (recordAsync → stopRecording vid "Skott klart" → nytt segment direkt).
   Klipp sparas till dokumentkatalogen `clips/` via `src/lib/clips.js` med spec:ens filnamnsformat.
+- Steg 2 (struktur) är byggt: spelarregister + grupper i `src/state/AppContext.js` (persisteras till
+  `appstate.json` via `src/lib/persist.js`), gruppvy med flikarna Förbered/Filma/Granska
+  (`src/screens/GroupScreen.js` + `src/tabs/`), spontant läge (`src/screens/SpontRecordScreen.js`)
+  och klippmetadata (spelar-id, grupp, moment, gästflagga, längd) i `clips-index.json`.
+  Gästklipp kan flyttas till riktig spelare i Granska (filen döps om). Nästa: steg 3 (Drive).
 - Testas i Expo Go (`npx expo start`), därför inga bibliotek med egna native-moduler utanför Expo SDK.
