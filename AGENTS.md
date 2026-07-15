@@ -41,6 +41,13 @@ Obs: expo-status-bar får INTE stå i plugins-listan i app.json på SDK 54.)
   (flatDir i appmodulen). full-gpl = GPL-kod i bygget; måste ses över före App Store.
   KVAR: ritning inbränd i exporten (kräver rastrering av strecken) och export av
   fleklippsgenomgångar ('clip'-händelser → flera inputs i filtergrafen).
+- DATALAGER V2 sedan 2026-07-15: teamclip-db.json (src/lib/db.js) är enda sanningen för
+  klipp/genomgångsflaggor/sammanställningar/jobbkö/Drive-cache. All mutation via synkron
+  db.update(fn); sidofiler (.review.json/.multireview.json) är immutabel inspelningsdata.
+  Uppladdningar = explicit jobbkö (db.jobs, logik i src/lib/jobs.js – REN, node-testbar).
+  Migrering från legacy-JSON-filerna sker automatiskt vid första start (.migrated).
+  Tester: `node tests/db.test.js && node tests/jobs.test.js` – kör efter datalagerändringar!
+  appstate.json (register/grupper) ligger medvetet kvar separat (persist.js).
 - EAS UPDATE aktivt sedan 2026-07-15: JS-ändringar skickas OTA till testarna med
   `eas update --channel preview --message "..."` – ingen ny APK behövs utom vid
   native-ändringar (nya moduler/plugins → bygg om BÅDA profilerna och skicka ny länk).
