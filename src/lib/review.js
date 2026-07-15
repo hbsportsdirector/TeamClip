@@ -1,11 +1,14 @@
 import { Directory, File, Paths } from "expo-file-system";
+import * as db from "./db";
 
-// En "genomgång" är tränarens inspelade feedback ovanpå ett klipp:
-//  - <klippbas>.m4a          tränarens röst, obruten tidslinje
-//  - <klippbas>.review.json  händelselogg (play/pause/seek/sudda) och
-//    ritstreck med tidsstämplar relativt ljudets start
-// Vid uppspelning styr loggen videon medan ljudet rullar. Ljudfilen delar
-// basnamn med klippet enligt spec, så den kan laddas upp bredvid i steg 3.
+// En "genomgång" är tränarens inspelade feedback ovanpå ett eller flera klipp:
+//  - <bas>.m4a                tränarens röst, obruten tidslinje
+//  - <bas>.review.json /      händelselogg (play/pause/seek/klipp/sudda) och
+//    <bas>.multireview.json   ritstreck med tidsstämplar relativt ljudstarten
+//
+// Sidofilerna är IMMUTABEL inspelningsdata efter save – alla flaggor
+// (arkiverad/favorit/sammanslagen) bor i db:n. Vid uppspelning styr loggen
+// videon medan ljudet rullar; ljudfilen delar basnamn med klippet enligt spec.
 const clipsDir = () => new Directory(Paths.document, "clips");
 
 const base = (clipFile) => clipFile.replace(/\.mp4$/, "");
@@ -13,6 +16,7 @@ export const reviewAudioName = (clipFile) => `${base(clipFile)}.m4a`;
 export const reviewLogName = (clipFile) => `${base(clipFile)}.review.json`;
 const exportVideoName = (clipFile) => `${base(clipFile)}_genomgang.mp4`;
 
+// ——— Enklippsgenomgångar (knutna till klippets basnamn) ————————
 export function hasReview(clipFile) {
   try {
     const dir = clipsDir();
@@ -78,29 +82,7 @@ export function renameReviewFiles(oldClipFile, newClipFile) {
 }
 
 // ——— Fleklippsgenomgångar ————————————————————————
-// En genomgång över flera klipp (t.ex. alla Kalles skott från kön) är en
-// egen enhet: <bas>.m4a + <bas>.multireview.json. Loggen innehåller
-// 'clip'-händelser som byter videokälla mitt i tidslinjen, och json:en
-// bär sin egen klippinfo (fil, spelare, moment) så den är självförsörjande.
 const MULTI_SUFFIX = ".multireview.json";
-
-// Vanligaste momentet bland genomgångens klipp – styr mappen i Drive
-function dominantMoment(clips) {
-  const counts = new Map();
-  for (const c of clips ?? []) {
-    if (!c.moment) continue;
-    counts.set(c.moment, (counts.get(c.moment) ?? 0) + 1);
-  }
-  let best = "Traning";
-  let bestN = 0;
-  for (const [m, n] of counts) {
-    if (n > bestN) {
-      best = m;
-      bestN = n;
-    }
-  }
-  return best;
-}
 
 const sanitizeName = (s) =>
   s
@@ -112,112 +94,37 @@ const sanitizeName = (s) =>
 export async function saveMultiReview(meta, tempAudioUri, log) {
   const dir = clipsDir();
   if (!dir.exists) dir.create({ idempotent: true, intermediates: true });
-  const base = `${sanitizeName(meta.group)}_${sanitizeName(meta.player)}_genomgang_${meta.createdAt}`;
+  const baseName = `${sanitizeName(meta.group)}_${sanitizeName(meta.player)}_genomgang_${meta.createdAt}`;
   const audio = new File(tempAudioUri);
-  await audio.move(new File(dir, `${base}.m4a`));
-  new File(dir, `${base}${MULTI_SUFFIX}`).write(JSON.stringify({ ...meta, ...log }));
-  return `${base}${MULTI_SUFFIX}`;
+  await audio.move(new File(dir, `${baseName}.m4a`));
+  const name = `${baseName}${MULTI_SUFFIX}`;
+  new File(dir, name).write(JSON.stringify({ ...meta, ...log }));
+  db.update((d) =>
+    d.reviews.push({
+      name,
+      player: meta.player,
+      playerId: meta.playerId ?? null,
+      groupId: meta.groupId ?? null,
+      group: meta.group ?? "",
+      moment: db.dominantMoment(meta.clips),
+      clipCount: meta.clips?.length ?? 0,
+      durationMs: log.durationMs ?? 0,
+      createdAt: meta.createdAt ?? 0,
+      archived: false,
+      favorite: false,
+      merged: false,
+    })
+  );
+  return name;
 }
 
 export function listMultiReviews(groupId, { includeArchived = false } = {}) {
-  try {
-    const dir = clipsDir();
-    if (!dir.exists) return [];
-    const out = [];
-    for (const f of dir.list()) {
-      if (!(f instanceof File) || !f.name.endsWith(MULTI_SUFFIX)) continue;
-      try {
-        const meta = JSON.parse(f.textSync());
-        if (groupId && meta.groupId !== groupId) continue;
-        if (!includeArchived && meta.archived) continue;
-        const audio = new File(dir, f.name.replace(MULTI_SUFFIX, ".m4a"));
-        if (!audio.exists) continue;
-        out.push({
-          name: f.name,
-          player: meta.player,
-          playerId: meta.playerId ?? null,
-          groupId: meta.groupId ?? null,
-          group: meta.group ?? "",
-          moment: dominantMoment(meta.clips),
-          clipCount: meta.clips?.length ?? 0,
-          durationMs: meta.durationMs ?? 0,
-          createdAt: meta.createdAt ?? 0,
-          archived: !!meta.archived,
-          merged: !!meta.merged,
-          favorite: !!meta.favorite,
-        });
-      } catch {}
-    }
-    return out.sort((a, b) => b.createdAt - a.createdAt);
-  } catch (e) {
-    console.warn("Kunde inte lista genomgångar:", e);
-    return [];
-  }
-}
-
-export function archiveMultiReviews(groupId) {
-  try {
-    const dir = clipsDir();
-    if (!dir.exists) return;
-    for (const f of dir.list()) {
-      if (!(f instanceof File) || !f.name.endsWith(MULTI_SUFFIX)) continue;
-      try {
-        const meta = JSON.parse(f.textSync());
-        if (meta.groupId !== groupId || meta.archived) continue;
-        meta.archived = true;
-        f.write(JSON.stringify(meta));
-      } catch {}
-    }
-  } catch (e) {
-    console.warn("Kunde inte arkivera genomgångar:", e);
-  }
-}
-
-export function archiveMultiReviewsBeforeToday() {
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  try {
-    const dir = clipsDir();
-    if (!dir.exists) return;
-    for (const f of dir.list()) {
-      if (!(f instanceof File) || !f.name.endsWith(MULTI_SUFFIX)) continue;
-      try {
-        const meta = JSON.parse(f.textSync());
-        if (meta.archived || (meta.createdAt ?? 0) >= startOfToday.getTime()) continue;
-        meta.archived = true;
-        f.write(JSON.stringify(meta));
-      } catch {}
-    }
-  } catch (e) {
-    console.warn("Kunde inte arkivera genomgångar:", e);
-  }
-}
-
-export function toggleMultiReviewFavorite(name) {
-  try {
-    const f = new File(clipsDir(), name);
-    if (!f.exists) return false;
-    const meta = JSON.parse(f.textSync());
-    meta.favorite = !meta.favorite;
-    f.write(JSON.stringify(meta));
-    return !!meta.favorite;
-  } catch (e) {
-    console.warn("Kunde inte favoritmarkera genomgång:", e);
-    return false;
-  }
-}
-
-export function setMultiReviewMerged(name) {
-  try {
-    const f = new File(clipsDir(), name);
-    if (!f.exists) return;
-    const meta = JSON.parse(f.textSync());
-    if (meta.merged) return;
-    meta.merged = true;
-    f.write(JSON.stringify(meta));
-  } catch (e) {
-    console.warn("Kunde inte markera genomgång som sammanslagen:", e);
-  }
+  return db
+    .getDb()
+    .reviews.filter((r) => (groupId ? r.groupId === groupId : true))
+    .filter((r) => includeArchived || !r.archived)
+    .slice()
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export function loadMultiReview(name) {
@@ -255,8 +162,47 @@ export function deleteMultiReview(name) {
       console.warn("Kunde inte ta bort genomgångsfil:", e);
     }
   }
+  db.update((d) => {
+    d.reviews = d.reviews.filter((r) => r.name !== name);
+  });
 }
 
+export function toggleMultiReviewFavorite(name) {
+  return db.update((d) => {
+    const r = d.reviews.find((x) => x.name === name);
+    if (!r) return false;
+    r.favorite = !r.favorite;
+    return r.favorite;
+  });
+}
+
+export function setMultiReviewMerged(name) {
+  db.update((d) => {
+    const r = d.reviews.find((x) => x.name === name);
+    if (r) r.merged = true;
+  });
+}
+
+export function archiveMultiReviews(groupId) {
+  db.update((d) => {
+    for (const r of d.reviews) {
+      if (r.groupId === groupId) r.archived = true;
+    }
+  });
+}
+
+export function archiveMultiReviewsBeforeToday() {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  db.update((d) => {
+    for (const r of d.reviews) {
+      if (!r.archived && (r.createdAt ?? 0) < startOfToday.getTime()) r.archived = true;
+    }
+  });
+}
+
+// Uppdaterar klippreferenser i sidofilerna när ett klipp döps om – enda
+// tillåtna sidofilsmutationen (rena filreferenser, inga flaggor)
 function renameInMultiReviews(oldClipFile, newClipFile) {
   try {
     const dir = clipsDir();

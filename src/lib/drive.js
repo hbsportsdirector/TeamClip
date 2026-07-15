@@ -1,5 +1,5 @@
 import { uploadAsync, FileSystemUploadType } from "expo-file-system/legacy";
-import { loadJSON, saveJSON } from "./persist";
+import * as db from "./db";
 
 // Google Drive REST v3 med enbart scope drive.file: appen ser bara det
 // den själv skapat, så mapp-id:n cachas i drive-state.json för att slippa
@@ -9,18 +9,12 @@ import { loadJSON, saveJSON } from "./persist";
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
-const STATE_FILE = "drive-state.json";
 
-let state = null;
-const getState = () => {
-  if (!state) state = loadJSON(STATE_FILE, { folders: {}, shared: {} });
-  return state;
-};
-const persistState = () => saveJSON(STATE_FILE, state);
-
+// mappcache och delningsminne bor i db:n (db.drive)
 export function resetDriveCache() {
-  state = { folders: {}, shared: {} };
-  persistState();
+  db.update((d) => {
+    d.drive = { folders: {}, shared: {} };
+  });
 }
 
 async function api(token, path, { method = "GET", body } = {}) {
@@ -61,15 +55,17 @@ async function createFolder(token, name, parentId) {
 
 // path t.ex. ["TeamClip", "Spelare", "Kalle S"] – skapar det som saknas
 export async function ensureFolderPath(token, path) {
-  const st = getState();
+  const cache = () => db.getDb().drive.folders;
   const key = path.join("/");
-  if (st.folders[key]) {
+  if (cache()[key]) {
     // verifiera att cachad mapp finns kvar (kan ha raderats i Drive)
     try {
-      await api(token, `/files/${st.folders[key]}?fields=id,trashed`);
-      return st.folders[key];
+      await api(token, `/files/${cache()[key]}?fields=id,trashed`);
+      return cache()[key];
     } catch {
-      delete st.folders[key];
+      db.update((d) => {
+        delete d.drive.folders[key];
+      });
     }
   }
   let parentId = "root";
@@ -77,14 +73,15 @@ export async function ensureFolderPath(token, path) {
   for (const segment of path) {
     walked.push(segment);
     const wKey = walked.join("/");
-    if (st.folders[wKey]) {
-      parentId = st.folders[wKey];
+    if (cache()[wKey]) {
+      parentId = cache()[wKey];
       continue;
     }
     let id = await findFolder(token, segment, parentId);
     if (!id) id = await createFolder(token, segment, parentId);
-    st.folders[wKey] = id;
-    persistState();
+    db.update((d) => {
+      d.drive.folders[wKey] = id;
+    });
     parentId = id;
   }
   return parentId;
@@ -92,16 +89,16 @@ export async function ensureFolderPath(token, path) {
 
 // Delar mappen med läsrättighet – körs EN gång per mapp+e-post
 export async function shareFolderOnce(token, folderId, email) {
-  const st = getState();
-  const shared = st.shared[folderId] ?? [];
+  const shared = db.getDb().drive.shared[folderId] ?? [];
   const normalized = email.trim().toLowerCase();
   if (!normalized || shared.includes(normalized)) return false;
   await api(token, `/files/${folderId}/permissions?sendNotificationEmail=true&fields=id`, {
     method: "POST",
     body: { role: "reader", type: "user", emailAddress: normalized },
   });
-  st.shared[folderId] = [...shared, normalized];
-  persistState();
+  db.update((d) => {
+    d.drive.shared[folderId] = [...(d.drive.shared[folderId] ?? []), normalized];
+  });
   return true;
 }
 

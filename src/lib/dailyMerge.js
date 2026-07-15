@@ -1,5 +1,5 @@
 import { Directory, File, Paths } from "expo-file-system";
-import { loadJSON, saveJSON } from "./persist";
+import * as db from "./db";
 import {
   listClips,
   setClipsMerged,
@@ -16,36 +16,21 @@ import {
 import { exportVideoName, multiExportVideoName } from "./exportReview";
 
 // Dagssammanställningar: när passet avslutas slås dagens material ihop till
-// (max) två filer per spelare – "<dag>_Klipp_<Spelare>.mp4" (alla råklipp i
-// följd) och "<dag>_Genomgang_<Spelare>.mp4" (alla genomgångsvideor i följd).
-// Det är dessa som laddas upp till Drive; enskilda filer stannar i appen.
-// Sammanslagningen är i regel omkodningsfri (concat-demuxern, -c copy) –
-// allt material har samma kodningsparametrar.
-const MERGES_FILE = "merges.json";
-
+// (max) två filer per spelare och moment – "<dag>_Klipp_<Spelare>.mp4" och
+// "<dag>_Genomgang_<Spelare>.mp4". Det är dessa som laddas upp till Drive;
+// enskilda filer stannar i appen. Sammanslagningen är i regel omkodningsfri
+// (concat-demuxern, -c copy) – allt material har samma kodningsparametrar.
 const clipsDir = () => new Directory(Paths.document, "clips");
 
-let merges = null;
-const getMerges = () => {
-  if (!merges) merges = loadJSON(MERGES_FILE, []);
-  return merges;
-};
-const persist = () => saveJSON(MERGES_FILE, getMerges());
-
-const listeners = new Set();
-const notify = () => listeners.forEach((cb) => cb());
-export function subscribe(cb) {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
-}
+export const subscribe = db.subscribe;
 
 export function listMerges() {
-  return getMerges();
+  return db.getDb().merges;
 }
 
 // Hittar (nyaste) sammanställningen som innehåller en given källfil
 export function findMergeFor(sourceFile) {
-  const hits = getMerges().filter((m) => m.sources.includes(sourceFile));
+  const hits = db.getDb().merges.filter((m) => m.sources.includes(sourceFile));
   if (hits.length === 0) return null;
   return hits.reduce((a, b) => ((b.createdAt ?? 0) > (a.createdAt ?? 0) ? b : a));
 }
@@ -135,12 +120,10 @@ export async function processPending() {
     await doProcess(ffmpeg);
   } finally {
     processing = false;
-    notify();
   }
 }
 
 async function doProcess(ffmpeg) {
-
   const all = listClips(undefined, { includeArchived: true });
 
   // — Råklipp: gruppera per (grupp, spelare/gäst, moment, dag) —
@@ -160,26 +143,26 @@ async function doProcess(ffmpeg) {
     const outName = `${day}_${sanitize(first.group || "Grupp")}_${sanitize(first.player)}_klipp_${Date.now()}.merged.mp4`;
     try {
       await concatFiles(ffmpeg, sources, outName);
-      getMerges().push({
-        file: outName,
-        driveName: `${day}_Klipp_${sanitize(first.player)}_${hhmm()}.mp4`,
-        kind: "klipp",
-        player: first.player,
-        playerId: first.playerId ?? null,
-        groupId: first.groupId,
-        group: first.group,
-        moment: first.moment || "Traning",
-        guest: !!first.guest,
-        day,
-        sources,
-        createdAt: Date.now(),
-      });
-      persist();
+      db.update((d) =>
+        d.merges.push({
+          file: outName,
+          driveName: `${day}_Klipp_${sanitize(first.player)}_${hhmm()}.mp4`,
+          kind: "klipp",
+          player: first.player,
+          playerId: first.playerId ?? null,
+          groupId: first.groupId,
+          group: first.group,
+          moment: first.moment || "Traning",
+          guest: !!first.guest,
+          day,
+          sources,
+          createdAt: Date.now(),
+        })
+      );
       setClipsMerged(sources, "merged");
     } catch (e) {
       console.warn("Klippsammanställning misslyckades:", e?.message ?? e);
     }
-    notify();
   }
 
   // — Genomgångsvideor: enklipps-exporter + fleklippsvideor per
@@ -223,27 +206,27 @@ async function doProcess(ffmpeg) {
     const outName = `${day}_${sanitize(g.meta.group || "Grupp")}_${sanitize(g.meta.player)}_genomgang_${Date.now()}.merged.mp4`;
     try {
       await concatFiles(ffmpeg, items.map((i) => i.file), outName);
-      getMerges().push({
-        file: outName,
-        driveName: `${day}_Genomgang_${sanitize(g.meta.player)}_${hhmm()}.mp4`,
-        kind: "genomgang",
-        player: g.meta.player,
-        playerId: g.meta.playerId ?? null,
-        groupId: g.meta.groupId,
-        group: g.meta.group,
-        moment: g.meta.moment || "Traning",
-        guest: false,
-        day,
-        sources: items.map((i) => i.file),
-        createdAt: Date.now(),
-      });
-      persist();
+      db.update((d) =>
+        d.merges.push({
+          file: outName,
+          driveName: `${day}_Genomgang_${sanitize(g.meta.player)}_${hhmm()}.mp4`,
+          kind: "genomgang",
+          player: g.meta.player,
+          playerId: g.meta.playerId ?? null,
+          groupId: g.meta.groupId,
+          group: g.meta.group,
+          moment: g.meta.moment || "Traning",
+          guest: false,
+          day,
+          sources: items.map((i) => i.file),
+          createdAt: Date.now(),
+        })
+      );
       setClipsMerged(g.singles.map((i) => i.clipFile), "exportMerged");
       for (const m of g.multis) setMultiReviewMerged(m.mrName);
     } catch (e) {
       console.warn("Genomgångssammanställning misslyckades:", e?.message ?? e);
     }
-    notify();
   }
 }
 

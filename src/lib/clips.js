@@ -1,13 +1,10 @@
 import { Directory, File, Paths } from "expo-file-system";
-import { loadJSON, saveJSON } from "./persist";
+import * as db from "./db";
 import { deleteReview, renameReviewFiles } from "./review";
 
 // Videofilerna ligger i dokumentkatalogen clips/ med spec:ens filnamnsformat:
 //   ÅÅÅÅ-MM-DD_<Grupp>_<Moment>_<Spelare>_<löpnr>.mp4
-// Metadata (spelar-id, grupp-id, gästflagga, längd) ligger i clips-index.json,
-// eftersom filnamnet inte räcker för Drive-kopplingen i steg 3.
-const INDEX = "clips-index.json";
-
+// All metadata (spelar-id, grupp, flaggor) bor i db:n – en rad per klipp.
 const clipsDir = () => new Directory(Paths.document, "clips");
 
 export function ensureClipsDir() {
@@ -48,12 +45,19 @@ export function parseFileName(name) {
   };
 }
 
-const readIndex = () => loadJSON(INDEX, []);
-const writeIndex = (arr) => saveJSON(INDEX, arr);
+// Endast filer som följer klippnamnsmönstret räknas som klipp – exportvideor
+// (<bas>_genomgang.mp4, <genomgång>.video.mp4, *.merged.mp4) är härledda
+const CLIP_FILE_RE = /^\d{4}-\d{2}-\d{2}_[^_]+_[^_]+_[^_]+_\d+\.mp4$/;
 
-function nextSeq(index) {
+function listFiles() {
+  return ensureClipsDir()
+    .list()
+    .filter((f) => f instanceof File && CLIP_FILE_RE.test(f.name));
+}
+
+function nextSeq() {
   let max = 0;
-  for (const c of index) {
+  for (const c of db.getDb().clips) {
     const { seq } = parseFileName(c.file);
     if (seq > max) max = seq;
   }
@@ -64,18 +68,8 @@ function nextSeq(index) {
   return max + 1;
 }
 
-// Endast filer som följer klippnamnsmönstret räknas som klipp – exportvideor
-// (<bas>_genomgang.mp4, <genomgång>.video.mp4) är härledda filer
-const CLIP_FILE_RE = /^\d{4}-\d{2}-\d{2}_[^_]+_[^_]+_[^_]+_\d+\.mp4$/;
-
-function listFiles() {
-  return ensureClipsDir()
-    .list()
-    .filter((f) => f instanceof File && CLIP_FILE_RE.test(f.name));
-}
-
-// Sparningar serialiseras så att två snabba klipp inte skriver över
-// varandras indexrader (läs-uppdatera-skriv utan lås).
+// Sparningar serialiseras: löpnumret reserveras först när flytten är klar,
+// och två snabba klipp får aldrig samma nummer.
 let saveChain = Promise.resolve();
 
 export function saveClip(tempUri, meta) {
@@ -86,8 +80,7 @@ export function saveClip(tempUri, meta) {
 
 async function doSave(tempUri, { player, playerId, groupId, group, moment, guest, durationMs }) {
   const dir = ensureClipsDir();
-  const index = readIndex();
-  const seq = nextSeq(index);
+  const seq = nextSeq();
   const name = buildFileName({ group, moment, player, seq });
   const src = new File(tempUri);
   await src.move(new File(dir, name));
@@ -101,102 +94,106 @@ async function doSave(tempUri, { player, playerId, groupId, group, moment, guest
     guest: !!guest,
     durationMs: durationMs ?? 0,
     ts: Date.now(),
+    archived: false,
+    favorite: false,
+    merged: false,
+    exportMerged: false,
   };
-  index.push(entry);
-  writeIndex(index);
+  db.update((d) => d.clips.push(entry));
   return { ...entry, uri: src.uri };
 }
 
 export function listClips(groupId, { includeArchived = false } = {}) {
-  const index = readIndex();
   const files = listFiles();
-  const indexed = new Set(index.map((c) => c.file));
   const existing = new Set(files.map((f) => f.name));
+  const known = new Set(db.getDb().clips.map((c) => c.file));
 
-  // Adoptera filer som saknar indexrad (t.ex. klipp från steg 1-testerna)
-  let changed = false;
-  for (const f of files) {
-    if (!indexed.has(f.name)) {
-      const p = parseFileName(f.name);
-      index.push({
-        file: f.name,
-        player: p.player,
-        playerId: null,
-        groupId: null,
-        group: p.group,
-        moment: p.moment,
-        guest: false,
-        durationMs: 0,
-        ts: f.modificationTime ?? 0,
-      });
-      changed = true;
-    }
+  // adoptera oindexerade filer, rensa rader vars fil försvunnit
+  const orphanFiles = files.filter((f) => !known.has(f.name));
+  const deadRows = db.getDb().clips.some((c) => !existing.has(c.file));
+  if (orphanFiles.length > 0 || deadRows) {
+    db.update((d) => {
+      for (const f of orphanFiles) {
+        const p = parseFileName(f.name);
+        d.clips.push({
+          file: f.name,
+          player: p.player,
+          playerId: null,
+          groupId: null,
+          group: p.group,
+          moment: p.moment,
+          guest: false,
+          durationMs: 0,
+          ts: f.modificationTime ?? 0,
+          archived: false,
+          favorite: false,
+          merged: false,
+          exportMerged: false,
+        });
+      }
+      d.clips = d.clips.filter((c) => existing.has(c.file));
+    });
   }
-  // Rensa indexrader vars fil försvunnit
-  const alive = index.filter((c) => existing.has(c.file));
-  if (changed || alive.length !== index.length) writeIndex(alive);
 
   const dir = clipsDir();
   const sizes = new Map(files.map((f) => [f.name, f.size]));
-  return alive
-    .filter((c) => (groupId ? c.groupId === groupId : true))
+  return db
+    .getDb()
+    .clips.filter((c) => (groupId ? c.groupId === groupId : true))
     .filter((c) => includeArchived || !c.archived)
+    .slice()
     .sort((a, b) => b.ts - a.ts)
     .map((c) => ({ ...c, uri: new File(dir, c.file).uri, size: sizes.get(c.file) ?? 0 }));
 }
 
+export function toggleClipFavorite(fileName) {
+  return db.update((d) => {
+    const entry = d.clips.find((c) => c.file === fileName);
+    if (!entry) return false;
+    entry.favorite = !entry.favorite;
+    return entry.favorite;
+  });
+}
+
 // "Passet klart": göm gruppens klipp från Granska-vyn utan att radera något
 export function archiveGroupClips(groupId) {
-  const index = readIndex();
-  let n = 0;
-  for (const c of index) {
-    if (c.groupId === groupId && !c.archived) {
-      c.archived = true;
-      n++;
+  return db.update((d) => {
+    let n = 0;
+    for (const c of d.clips) {
+      if (c.groupId === groupId && !c.archived) {
+        c.archived = true;
+        n++;
+      }
     }
-  }
-  if (n > 0) writeIndex(index);
-  return n;
+    return n;
+  });
 }
 
 // Glömt "Passet klart"? Gårdagens (och äldre) klipp arkiveras automatiskt
 export function archiveClipsBeforeToday() {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
-  const index = readIndex();
-  let n = 0;
-  for (const c of index) {
-    if (!c.archived && (c.ts ?? 0) < startOfToday.getTime()) {
-      c.archived = true;
-      n++;
+  return db.update((d) => {
+    let n = 0;
+    for (const c of d.clips) {
+      if (!c.archived && (c.ts ?? 0) < startOfToday.getTime()) {
+        c.archived = true;
+        n++;
+      }
     }
-  }
-  if (n > 0) writeIndex(index);
-  return n;
-}
-
-export function toggleClipFavorite(fileName) {
-  const index = readIndex();
-  const entry = index.find((c) => c.file === fileName);
-  if (!entry) return false;
-  entry.favorite = !entry.favorite;
-  writeIndex(index);
-  return entry.favorite;
+    return n;
+  });
 }
 
 // Markerar källfiler som medtagna i en dagssammanställning.
 // field: 'merged' (råklipp) eller 'exportMerged' (genomgångsvideo)
 export function setClipsMerged(fileNames, field = "merged") {
   const set = new Set(fileNames);
-  const index = readIndex();
-  let changed = false;
-  for (const c of index) {
-    if (set.has(c.file) && !c[field]) {
-      c[field] = true;
-      changed = true;
+  db.update((d) => {
+    for (const c of d.clips) {
+      if (set.has(c.file)) c[field] = true;
     }
-  }
-  if (changed) writeIndex(index);
+  });
 }
 
 export function clipCountForGroup(groupId) {
@@ -210,22 +207,26 @@ export function clipCountForGroup(groupId) {
 // Gästklipp som flyttas till en riktig spelare: filen döps om så att
 // filnamnet fortsätter spegla verkligheten inför Drive-uppladdningen.
 export function reassignClip(fileName, { player, playerId }) {
-  const index = readIndex();
-  const entry = index.find((c) => c.file === fileName);
+  const entry = db.getDb().clips.find((c) => c.file === fileName);
   if (!entry) return;
   const p = parseFileName(fileName);
   const newName = `${p.date}_${sanitize(entry.group || p.group)}_${sanitize(entry.moment)}_${sanitize(player)}_${pad(p.seq, 3)}.mp4`;
+  let renamed = false;
   try {
     new File(clipsDir(), fileName).move(new File(clipsDir(), newName));
     renameReviewFiles(fileName, newName);
-    entry.file = newName;
+    renamed = true;
   } catch (e) {
     console.warn("Kunde inte döpa om klippfil:", e);
   }
-  entry.player = player;
-  entry.playerId = playerId ?? null;
-  entry.guest = false;
-  writeIndex(index);
+  db.update((d) => {
+    const c = d.clips.find((x) => x.file === fileName);
+    if (!c) return;
+    if (renamed) c.file = newName;
+    c.player = player;
+    c.playerId = playerId ?? null;
+    c.guest = false;
+  });
 }
 
 export function deleteClip(fileName) {
@@ -236,7 +237,9 @@ export function deleteClip(fileName) {
     console.warn("Kunde inte ta bort klippfil:", e);
   }
   deleteReview(fileName);
-  writeIndex(readIndex().filter((c) => c.file !== fileName));
+  db.update((d) => {
+    d.clips = d.clips.filter((c) => c.file !== fileName);
+  });
 }
 
 export function discardTempClip(tempUri) {
