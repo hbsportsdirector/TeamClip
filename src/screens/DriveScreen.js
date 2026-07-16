@@ -4,11 +4,16 @@ import { T, F } from "../theme";
 import { isGoogleConfigured } from "../config";
 import * as googleAuth from "../lib/googleAuth";
 import * as uploadQueue from "../lib/uploadQueue";
+import * as backup from "../lib/backup";
+import { localStorageBytes, runCleanup } from "../lib/cleanup";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 export default function DriveScreen({ onBack }) {
   const [user, setUser] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [dialog, setDialog] = useState(null);
+  const [restoreInfo, setRestoreInfo] = useState(null);
   const [, setTick] = useState(0);
 
   const moduleMissing = googleAuth.isModuleMissing();
@@ -36,6 +41,41 @@ export default function DriveScreen({ onBack }) {
   const disconnect = async () => {
     await googleAuth.signOut();
     setUser(null);
+  };
+
+  const confirmRestore = () => {
+    setDialog({
+      title: "Återställ från säkerhetskopian?",
+      message:
+        "Registret, grupperna och appens historik ersätts med senaste säkerhetskopian från din Drive. Videofilerna i Drive påverkas inte.",
+      confirmLabel: "Återställ",
+      destructive: true,
+      onConfirm: async () => {
+        setBusy(true);
+        setError(null);
+        try {
+          const info = await backup.restoreBackup();
+          if (!info) {
+            setError("Ingen säkerhetskopia hittades i din Drive.");
+          } else {
+            setRestoreInfo(info);
+          }
+        } catch (e) {
+          setError(String(e?.message ?? e));
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
+  };
+
+  const reloadApp = async () => {
+    try {
+      const Updates = require("expo-updates");
+      await Updates.reloadAsync();
+    } catch {
+      setError("Stäng appen helt och öppna den igen så laddas den återställda datan.");
+    }
   };
 
   const stats = uploadQueue.getStats();
@@ -127,6 +167,60 @@ export default function DriveScreen({ onBack }) {
               </Text>
             </View>
 
+            <View style={s.card}>
+              <Text style={s.cardTitle}>Säkerhetskopia & lagring</Text>
+              {restoreInfo ? (
+                <>
+                  <Text style={[s.cardText, { color: T.green }]}>
+                    ✓ Återställd: {restoreInfo.groups} grupper, {restoreInfo.players} spelare (kopia
+                    från{" "}
+                    {new Date(restoreInfo.createdAt).toLocaleString("sv-SE", {
+                      day: "numeric",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    )
+                  </Text>
+                  <Pressable onPress={reloadApp} style={[s.actionBtn, { marginTop: 14 }]}>
+                    <Text style={s.actionBtnText}>Ladda om appen</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={s.cardText}>
+                    {backup.lastBackupAt()
+                      ? `Metadatan säkerhetskopieras automatiskt – senast ${new Date(
+                          backup.lastBackupAt()
+                        ).toLocaleString("sv-SE", {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}.`
+                      : "Metadatan säkerhetskopieras automatiskt efter första uppladdningen."}
+                  </Text>
+                  <Text style={[s.cardText, { marginTop: 6 }]}>
+                    Lokalt videoutrymme: {(localStorageBytes() / 1024 / 1024).toFixed(0)} MB.
+                    Levererat material äldre än 30 dagar rensas automatiskt (favoriter undantagna).
+                  </Text>
+                  <Pressable
+                    onPress={confirmRestore}
+                    disabled={busy}
+                    style={({ pressed }) => [
+                      s.actionBtnGhost,
+                      { marginTop: 14 },
+                      (pressed || busy) && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Text style={s.actionBtnGhostText}>
+                      {busy ? "Arbetar…" : "Återställ från säkerhetskopia"}
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+
             <Text style={s.note}>
               Mappstruktur: TeamClip/Spelare/&lt;Namn&gt; – varje spelares mapp delas en gång med
               e-posten i registret (läsrättighet). Gästklipp hamnar i gruppens gästmapp och delas
@@ -147,6 +241,7 @@ export default function DriveScreen({ onBack }) {
 
         {error && <Text style={s.error}>{error}</Text>}
       </ScrollView>
+      <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
     </View>
   );
 }

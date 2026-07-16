@@ -37,6 +37,51 @@ async function api(token, path, { method = "GET", body } = {}) {
 
 const escapeQuery = (s) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 
+// ——— Småfiler (backup-json): skapa, uppdatera, söka, ladda ner ————
+export async function findFileByName(token, name, parentId) {
+  const q = encodeURIComponent(
+    `name='${escapeQuery(name)}' and '${parentId}' in parents and trashed=false`
+  );
+  const data = await api(token, `/files?q=${q}&fields=files(id,name)`);
+  return data.files?.[0]?.id ?? null;
+}
+
+export async function createTextFile(token, { name, parentId, content, mimeType = "application/json" }) {
+  const meta = await api(token, "/files?fields=id", {
+    method: "POST",
+    body: { name, parents: [parentId], mimeType },
+  });
+  await updateTextFile(token, meta.id, content, mimeType);
+  return meta.id;
+}
+
+export async function updateTextFile(token, fileId, content, mimeType = "application/json") {
+  const res = await fetch(`${UPLOAD_API}/files/${fileId}?uploadType=media`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": mimeType },
+    body: content,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    const err = new Error(`Drive update: ${res.status} ${text.slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
+}
+
+export async function downloadTextFile(token, fileId) {
+  const res = await fetch(`${API}/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    const err = new Error(`Drive download: ${res.status} ${text.slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.text();
+}
+
 async function findFolder(token, name, parentId) {
   const q = encodeURIComponent(
     `name='${escapeQuery(name)}' and mimeType='${FOLDER_MIME}' and '${parentId}' in parents and trashed=false`

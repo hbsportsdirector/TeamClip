@@ -6,6 +6,7 @@ import { todayStr } from "./clips";
 import { exportVideoName, multiExportVideoName } from "./exportReview";
 import * as googleAuth from "./googleAuth";
 import { ensureFolderPath, shareFolderOnce, uploadFile } from "./drive";
+import { pushBackup } from "./backup";
 
 // Explicit jobbkö: varje leverans till Drive är en rad i db.jobs med egen
 // nyckel och status (pending → running → done/error). reconcileJobs härleder
@@ -112,6 +113,13 @@ export async function kick() {
         });
         if (e?.status === 401) break; // token dog – vänta på nästa kick
       }
+    }
+
+    // metadatan säkerhetskopieras till Drive efter varje körning
+    try {
+      await pushBackup(token);
+    } catch (e) {
+      console.warn("Backup misslyckades:", e?.message ?? e);
     }
   } finally {
     processing = false;

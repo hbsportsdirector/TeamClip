@@ -26,6 +26,7 @@ import DriveScreen from "./src/screens/DriveScreen";
 import * as uploadQueue from "./src/lib/uploadQueue";
 import * as exportReview from "./src/lib/exportReview";
 import * as dailyMerge from "./src/lib/dailyMerge";
+import * as cleanup from "./src/lib/cleanup";
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -58,12 +59,13 @@ function Root() {
 
   useEffect(() => {
     // bortglömda pass från tidigare dagar avslutas automatiskt, sedan
-    // export → dagssammanställning → uppladdning
+    // export → dagssammanställning → uppladdning → lagringsstädning
     dailyMerge.autoArchiveStale();
     exportReview
       .kick()
       .then(() => dailyMerge.processPending())
       .then(() => uploadQueue.kick())
+      .then(() => cleanup.runCleanup())
       .catch((e) => console.warn("Pipeline:", e?.message ?? e));
   }, []);
 

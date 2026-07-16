@@ -207,3 +207,10 @@ export function subscribe(cb) {
   listeners.add(cb);
   return () => listeners.delete(cb);
 }
+
+// Ersätter hela databasen (används vid återställning från säkerhetskopia)
+export function replaceAll(newDb) {
+  state = { ...emptyDb(), ...newDb };
+  getStorage().writeText(DB_FILE, JSON.stringify(state));
+  for (const cb of listeners) cb();
+}
