@@ -4,6 +4,8 @@ import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
 import { SectionLabel, Chip, u } from "../components/ui";
 import { SPORTS, momentsOf } from "../data/sports";
+import * as db from "../lib/db";
+import { playerCoverage, attentionList, coverageLabel } from "../lib/stats";
 
 export default function PrepTab({ group, session, setSession, onDone }) {
   const { registry } = useApp();
@@ -12,6 +14,15 @@ export default function PrepTab({ group, session, setSession, onDone }) {
     .filter(Boolean);
 
   const present = new Set(session.presentIds);
+
+  // täckningskoll: vilka har inte blivit filmade på länge?
+  const coverage = playerCoverage(db.getDb(), {
+    memberIds: group.memberIds,
+    registry,
+    now: Date.now(),
+  });
+  const coverageOf = new Map(coverage.map((r) => [r.id, r]));
+  const attention = attentionList(coverage).filter((r) => present.has(r.id));
   const toggle = (id) =>
     setSession((s) => ({
       ...s,
@@ -27,6 +38,20 @@ export default function PrepTab({ group, session, setSession, onDone }) {
       style={{ flex: 1 }}
       contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 30 }}
     >
+      {attention.length > 0 && (
+        <View style={s.attentionCard}>
+          <Text style={s.attentionTitle}>📸 Dags att bli sedda</Text>
+          <Text style={s.attentionText}>
+            {attention
+              .slice(0, 4)
+              .map((r) => `${r.name} (${coverageLabel(r)})`)
+              .join(", ")}
+            {attention.length > 4 ? ` och ${attention.length - 4} till` : ""} har inte filmats på
+            ett tag – kandidater för dagens kö?
+          </Text>
+        </View>
+      )}
+
       <SectionLabel>Vilka är på golvet idag?</SectionLabel>
       {members.length === 0 && (
         <Text style={s.empty}>
@@ -37,14 +62,25 @@ export default function PrepTab({ group, session, setSession, onDone }) {
       <View style={s.grid}>
         {members.map((p) => {
           const isOn = present.has(p.id);
+          const cov = coverageOf.get(p.id);
           return (
             <Pressable key={p.id} onPress={() => toggle(p.id)} style={[s.cell, isOn && s.cellOn]}>
               <View style={[s.check, isOn && s.checkOn]}>
                 {isOn && <Text style={s.checkMark}>✓</Text>}
               </View>
-              <Text style={[s.cellText, !isOn && { color: T.dim }]} numberOfLines={1}>
-                {p.name}
-              </Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[s.cellText, !isOn && { color: T.dim }]} numberOfLines={1}>
+                  {p.name}
+                </Text>
+                {cov && (
+                  <Text
+                    style={[s.cellCoverage, cov.needsAttention && s.cellCoverageWarn]}
+                    numberOfLines={1}
+                  >
+                    {coverageLabel(cov)}
+                  </Text>
+                )}
+              </View>
             </Pressable>
           );
         })}
@@ -199,7 +235,19 @@ const s = StyleSheet.create({
   },
   checkOn: { backgroundColor: T.accent, borderColor: T.accent },
   checkMark: { color: "#fff", fontSize: 11, lineHeight: 13 },
-  cellText: { flex: 1, color: T.line, fontFamily: F.body600, fontSize: 15 },
+  cellText: { color: T.line, fontFamily: F.body600, fontSize: 15 },
+  cellCoverage: { color: T.dim, fontFamily: F.body, fontSize: 11, marginTop: 1 },
+  cellCoverageWarn: { color: "#E8A33D" },
+  attentionCard: {
+    backgroundColor: T.courtLite,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#3D3620",
+  },
+  attentionTitle: { color: "#E8A33D", fontFamily: F.cond700, fontSize: 17, marginBottom: 4 },
+  attentionText: { color: T.mut, fontFamily: F.body, fontSize: 13, lineHeight: 19 },
   startBtn: {
     marginTop: 30,
     paddingVertical: 16,
