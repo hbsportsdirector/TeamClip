@@ -24,6 +24,7 @@ export const emptyDb = () => ({
   merges: [],
   jobs: {},
   drive: { folders: {}, shared: {} },
+  prefs: {},
 });
 
 // ——— Lagring (injicerbar) ————————————————————————

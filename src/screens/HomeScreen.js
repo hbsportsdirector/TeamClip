@@ -1,11 +1,65 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet } from "react-native";
 import { T, F } from "../theme";
 import { useApp } from "../state/AppContext";
 import { SectionLabel, Chip, u } from "../components/ui";
+import OnboardingCard from "../components/OnboardingCard";
+import * as db from "../lib/db";
+import { listClips } from "../lib/clips";
+import * as googleAuth from "../lib/googleAuth";
 
 export default function HomeScreen({ openGroup, openDrive }) {
   const [view, setView] = useState("groups");
+  const { groups } = useApp();
+  const [driveConnected, setDriveConnected] = useState(null);
+  const [dismissed, setDismissed] = useState(
+    () => !!db.getDb().prefs?.onboardingDismissed
+  );
+
+  useEffect(() => {
+    googleAuth.getCurrentUser().then((u2) => setDriveConnected(!!u2));
+  }, []);
+
+  const clipCount = safeClipCount();
+  const steps = [
+    {
+      title: "Skapa din första grupp",
+      hint: "Skriv ett namn nedan – t.ex. F14 eller Herrlag – och tryck +.",
+      done: groups.length > 0,
+    },
+    {
+      title: "Bygg truppen",
+      hint: "Tryck \"Redigera trupp\" på gruppkortet och lägg till spelarna.",
+      done: groups.some((g) => g.memberIds.length > 0),
+    },
+    {
+      title: "Filma första klippet",
+      hint: "Öppna gruppen → Filma. Prova kö-läget – det är appens signatur!",
+      done: clipCount > 0,
+    },
+    {
+      title: "Koppla Google Drive",
+      hint: "Så laddas klippen upp och delas med spelarna automatiskt.",
+      done: driveConnected === true,
+      onPress: openDrive,
+    },
+  ];
+  // visas tills allt är klart eller tränaren döljer det. Medan Drive-
+  // kontrollen pågår (null) visas inget för annars färdiga användare –
+  // undviker att kortet blinkar förbi för veteraner vid varje start.
+  const firstThreeDone = steps.slice(0, 3).every((st) => st.done);
+  const showOnboarding =
+    !dismissed &&
+    view === "groups" &&
+    !steps.every((st) => st.done) &&
+    !(driveConnected === null && firstThreeDone);
+
+  const dismiss = () => {
+    db.update((d) => {
+      d.prefs = { ...(d.prefs ?? {}), onboardingDismissed: true };
+    });
+    setDismissed(true);
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -38,10 +92,19 @@ export default function HomeScreen({ openGroup, openDrive }) {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
         keyboardShouldPersistTaps="handled"
       >
+        {showOnboarding && <OnboardingCard steps={steps} onDismiss={dismiss} />}
         {view === "groups" ? <GroupsView openGroup={openGroup} /> : <PlayersView />}
       </ScrollView>
     </View>
   );
+}
+
+function safeClipCount() {
+  try {
+    return listClips(undefined, { includeArchived: true }).length;
+  } catch {
+    return 0;
+  }
 }
 
 function GroupsView({ openGroup }) {
